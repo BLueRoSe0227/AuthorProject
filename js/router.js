@@ -24,6 +24,10 @@ const Router = {
 
   async resolve() {
     const hash = location.hash || '#/';
+    // Focus mode is a transient per-visit UI state (see manuscript.js); never let it
+    // survive a navigation away from the manuscript view (e.g. via the Ctrl+K search
+    // shortcut, which stays active even while the sidebar is hidden in focus mode).
+    if (!/^#\/work\/[^\/?]+\/manuscript/.test(hash)) document.body.classList.remove('focus-mode');
     for (const route of this.routes) {
       const m = hash.match(route.pattern);
       if (m) {

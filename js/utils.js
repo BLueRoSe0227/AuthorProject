@@ -105,4 +105,48 @@ const Utils = {
     if (!str) return '';
     return str.length > len ? str.slice(0, len) + '…' : str;
   },
+
+  // Strips script/style/embed-like tags, event handler attributes, and javascript: URLs
+  // from pasted or externally-sourced HTML before it's inserted into a contenteditable.
+  sanitizeHtml(html) {
+    if (!html) return '';
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'form', 'input', 'button'].forEach((tag) => {
+      doc.querySelectorAll(tag).forEach((el) => el.remove());
+    });
+    doc.querySelectorAll('*').forEach((el) => {
+      [...el.attributes].forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value.trim().toLowerCase();
+        if (name.startsWith('on') || ((name === 'href' || name === 'src') && value.startsWith('javascript:'))) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return doc.body.innerHTML;
+  },
+
+  // Short two-tone "done" chime for the timer, synthesized so no audio asset is needed.
+  beep() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      [0, 0.18].forEach((delay) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        const t0 = ctx.currentTime + delay;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.18);
+      });
+      setTimeout(() => ctx.close(), 500);
+    } catch (e) {}
+  },
 };

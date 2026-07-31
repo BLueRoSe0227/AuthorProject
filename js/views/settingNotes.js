@@ -77,7 +77,7 @@ Views.settingNotes = async function (workId) {
           <label>내용 <span class="muted">([[이름]]으로 캐릭터·장면과 연결)</span></label>
           <textarea class="textarea" id="fContent" rows="14">${Utils.escapeHtml(n.content || '')}</textarea>
         </div>
-        <span class="save-indicator" id="saveIndicator">저장됨</span>
+        <span class="save-indicator" id="saveIndicator" aria-live="polite">저장됨</span>
       </div>
     `;
 

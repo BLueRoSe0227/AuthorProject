@@ -19,6 +19,12 @@ Views.goals = async function (workId) {
       </div>
       <div class="chapter-goal-list" id="chapterGoalList"></div>
 
+      <div class="goals-section-title">
+        <span>📮 투고 내역</span>
+        <button class="btn btn--ghost btn--sm" id="addSubmissionBtn">+ 투고 추가</button>
+      </div>
+      <div class="submission-list" id="submissionList"></div>
+
       <div class="schedule-toolbar">
         <div class="goals-section-title" style="margin:0;">📅 일정</div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -35,6 +41,8 @@ Views.goals = async function (workId) {
 
   await renderGoalsGrid();
   await renderChapterGoals();
+  await renderSubmissions();
+  document.getElementById('addSubmissionBtn').addEventListener('click', () => openSubmissionModal());
 
   let scheduleMode = 'calendar';
   let calendarCursor = new Date();
@@ -203,6 +211,81 @@ Views.goals = async function (workId) {
         },
       ],
     });
+  }
+
+  const SUBMISSION_STATUS_CLASS = { 검토중: 'text-pal-2', 합격: 'text-pal-3', 불합격: 'text-danger', 보류: 'muted' };
+
+  async function renderSubmissions() {
+    const subs = await Models.getSubmissions(workId);
+    const list = document.getElementById('submissionList');
+    list.innerHTML = '';
+    if (!subs.length) {
+      list.innerHTML = `<p class="muted">아직 투고 기록이 없습니다.</p>`;
+      return;
+    }
+    subs.forEach((s) => {
+      const row = document.createElement('div');
+      row.className = 'submission-row';
+      row.innerHTML = `
+        <span class="submission-row__publisher">${Utils.escapeHtml(s.publisher)}</span>
+        <span class="muted">${s.date}</span>
+        <span class="submission-row__status ${SUBMISSION_STATUS_CLASS[s.status] || 'muted'}">${Utils.escapeHtml(s.status)}</span>
+        <span class="muted submission-row__note">${Utils.escapeHtml(Utils.truncate(s.note, 40))}</span>
+      `;
+      row.addEventListener('click', () => openSubmissionModal(s));
+      list.appendChild(row);
+    });
+  }
+
+  function openSubmissionModal(existing) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div class="form-field">
+        <label>투고처</label>
+        <input type="text" class="input" id="subPublisher" value="${Utils.escapeHtml(existing?.publisher || '')}" placeholder="예: OO 출판사, 문피아">
+      </div>
+      <div class="form-field">
+        <label>투고일</label>
+        <input type="date" class="input" id="subDate" value="${existing?.date || Utils.todayStr()}">
+      </div>
+      <div class="form-field">
+        <label>진행 상태</label>
+        <select class="input" id="subStatus">${Models.SUBMISSION_STATUSES.map((s) => `<option value="${s}" ${existing?.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      </div>
+      <div class="form-field">
+        <label>메모 (선택)</label>
+        <textarea class="textarea" id="subNote" rows="3">${Utils.escapeHtml(existing?.note || '')}</textarea>
+      </div>
+    `;
+    const actions = [
+      { label: '취소', onClick: () => close() },
+      {
+        label: existing ? '저장' : '추가', primary: true,
+        onClick: async () => {
+          const data = {
+            publisher: wrap.querySelector('#subPublisher').value.trim() || '이름 없는 투고처',
+            date: wrap.querySelector('#subDate').value || Utils.todayStr(),
+            status: wrap.querySelector('#subStatus').value,
+            note: wrap.querySelector('#subNote').value.trim(),
+          };
+          if (existing) await Models.updateSubmission(existing.id, data);
+          else await Models.createSubmission(workId, data);
+          close();
+          await renderSubmissions();
+        },
+      },
+    ];
+    if (existing) {
+      actions.splice(1, 0, {
+        label: '삭제', danger: true,
+        onClick: async () => {
+          await Models.deleteSubmission(existing.id);
+          close();
+          await renderSubmissions();
+        },
+      });
+    }
+    const { close } = UI.openModal({ title: existing ? '투고 정보 수정' : '투고 추가', bodyEl: wrap, actions });
   }
 
   function openScheduleModal(existing) {

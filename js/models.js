@@ -1,13 +1,57 @@
 // Entity factories + higher level operations built on top of DB
 const Models = {
-  async createWork({ title, description = '', color = '#6c5ce7', length = 'long' }) {
+  LENGTH_LABELS: { long: '장편', medium: '중편', short: '단편' },
+  FORMAT_LABELS: { book: '단행본', webnovel: '웹소설' },
+
+  // Starter setting-note stubs per genre — a lightweight planning scaffold the
+  // author can edit or delete freely, not a rigid template.
+  GENRE_TEMPLATES: {
+    fantasy: { label: '판타지', notes: [
+      { title: '세계관 개요', category: '세계관' },
+      { title: '마법/능력 체계', category: '규칙/마법체계' },
+      { title: '주요 세력', category: '조직/세력' },
+    ]},
+    romance: { label: '로맨스', notes: [
+      { title: '두 주인공의 첫 만남', category: '역사/사건' },
+      { title: '관계의 장애물', category: '일반' },
+    ]},
+    murim: { label: '무협', notes: [
+      { title: '무림 세력도', category: '조직/세력' },
+      { title: '무공/내공 체계', category: '규칙/마법체계' },
+      { title: '시대적 배경', category: '세계관' },
+    ]},
+    modern_fantasy: { label: '현대판타지', notes: [
+      { title: '현실과 다른 설정', category: '세계관' },
+      { title: '각성/능력 체계', category: '규칙/마법체계' },
+    ]},
+    mystery: { label: '미스터리·스릴러', notes: [
+      { title: '사건 개요', category: '역사/사건' },
+      { title: '용의자/단서 정리', category: '일반' },
+    ]},
+    sf: { label: 'SF', notes: [
+      { title: '기술/과학적 설정', category: '규칙/마법체계' },
+      { title: '세계관 연표', category: '역사/사건' },
+    ]},
+  },
+
+  async applyGenreTemplate(workId, genreKey) {
+    const genre = Models.GENRE_TEMPLATES[genreKey];
+    if (!genre) return;
+    for (const n of genre.notes) {
+      await Models.createSettingNote(workId, { title: n.title, category: n.category });
+    }
+  },
+
+  async createWork({ title, description = '', color = '#6c5ce7', length = 'long', format = 'book', genre = null }) {
     const now = new Date().toISOString();
     const work = {
       id: DB.uuid(),
       title: title || '제목 없는 작품',
       description,
       color,
-      length, // 'long' (장편) | 'short' (단편)
+      length, // 'long' (장편) | 'medium' (중편) | 'short' (단편) — 단행본(format:'book') 기준 분류
+      format, // 'book' (단행본) | 'webnovel' (웹소설)
+      genre, // GENRE_TEMPLATES 키 또는 null
       targetTotalChars: 0,
       targetDate: null,
       dailyGoalChars: 0,
@@ -48,6 +92,9 @@ const Models = {
     await DB.deleteByIndex('writingLog', 'workId', id);
     await DB.deleteByIndex('relationshipTags', 'workId', id);
     await DB.deleteByIndex('characterGroups', 'workId', id);
+    await DB.deleteByIndex('memoGroups', 'workId', id);
+    await DB.deleteByIndex('memoConnections', 'workId', id);
+    await DB.deleteByIndex('submissions', 'workId', id);
     await DB.delete('works', id);
   },
 
@@ -61,6 +108,7 @@ const Models = {
       order: existing.length,
       targetChars: 0,
       dueDate: null,
+      serializedAt: null, // 웹소설 형식 작품에서만 쓰는 연재일(ISO date) — 단행본 작품은 null로 유지
       createdAt: now,
       updatedAt: now,
     };
@@ -378,13 +426,14 @@ const Models = {
   },
 
   // ---- Memos ----
-  async createMemo(workId, { content = '' } = {}) {
+  async createMemo(workId, { content = '', x = null, y = null, w = 220, h = 140, color = null, groupId = null } = {}) {
     const now = new Date().toISOString();
     const memo = {
       id: DB.uuid(),
       workId: workId || null,
       content,
       archived: false,
+      x, y, w, h, color, groupId,
       createdAt: now,
       updatedAt: now,
     };
@@ -401,7 +450,60 @@ const Models = {
   },
 
   async deleteMemo(id) {
+    const memo = await DB.get('memos', id);
+    if (memo && memo.workId) {
+      const conns = await DB.getAllByIndex('memoConnections', 'workId', memo.workId);
+      for (const c of conns) {
+        if (c.fromMemoId === id || c.toMemoId === id) await DB.delete('memoConnections', c.id);
+      }
+    }
     await DB.delete('memos', id);
+  },
+
+  // ---- Memo canvas groups & connections (freeform memo board) ----
+  async getMemoGroups(workId) {
+    const groups = await DB.getAllByIndex('memoGroups', 'workId', workId);
+    return groups.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  },
+
+  async createMemoGroup(workId, { name = '새 그룹', color = '#8b7bff', x = 40, y = 40, w = 420, h = 300 } = {}) {
+    const now = new Date().toISOString();
+    const group = { id: DB.uuid(), workId, name, color, x, y, w, h, createdAt: now, updatedAt: now };
+    await DB.add('memoGroups', group);
+    return group;
+  },
+
+  async updateMemoGroup(id, patch) {
+    const g = await DB.get('memoGroups', id);
+    if (!g) return null;
+    Object.assign(g, patch, { updatedAt: new Date().toISOString() });
+    await DB.put('memoGroups', g);
+    return g;
+  },
+
+  async deleteMemoGroup(id) {
+    const group = await DB.get('memoGroups', id);
+    if (group) {
+      const memos = await DB.getAllByIndex('memos', 'workId', group.workId);
+      for (const m of memos) {
+        if (m.groupId === id) await DB.put('memos', { ...m, groupId: null });
+      }
+    }
+    await DB.delete('memoGroups', id);
+  },
+
+  async getMemoConnections(workId) {
+    return DB.getAllByIndex('memoConnections', 'workId', workId);
+  },
+
+  async createMemoConnection(workId, { fromMemoId, toMemoId, label = '' } = {}) {
+    const conn = { id: DB.uuid(), workId, fromMemoId, toMemoId, label, createdAt: new Date().toISOString() };
+    await DB.add('memoConnections', conn);
+    return conn;
+  },
+
+  async deleteMemoConnection(id) {
+    await DB.delete('memoConnections', id);
   },
 
   // ---- Schedules (deadlines / goal events) ----
@@ -438,6 +540,42 @@ const Models = {
   async getSchedulesForWork(workId) {
     const schedules = await DB.getAllByIndex('schedules', 'workId', workId);
     return schedules.sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  // ---- Submissions (투고 내역: 원고를 출판사/플랫폼에 투고한 기록) ----
+  SUBMISSION_STATUSES: ['검토중', '합격', '불합격', '보류'],
+
+  async getSubmissions(workId) {
+    const subs = await DB.getAllByIndex('submissions', 'workId', workId);
+    return subs.sort((a, b) => b.date.localeCompare(a.date));
+  },
+
+  async createSubmission(workId, { publisher, date, status = '검토중', note = '' } = {}) {
+    const now = new Date().toISOString();
+    const submission = {
+      id: DB.uuid(),
+      workId,
+      publisher: publisher || '이름 없는 투고처',
+      date: date || Utils.todayStr(),
+      status,
+      note,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await DB.add('submissions', submission);
+    return submission;
+  },
+
+  async updateSubmission(id, patch) {
+    const s = await DB.get('submissions', id);
+    if (!s) return null;
+    Object.assign(s, patch, { updatedAt: new Date().toISOString() });
+    await DB.put('submissions', s);
+    return s;
+  },
+
+  async deleteSubmission(id) {
+    await DB.delete('submissions', id);
   },
 
   // ---- Writing log (for streak / daily-weekly goal tracking) ----
@@ -602,5 +740,66 @@ const Models = {
       schedules,
       upcoming,
     };
+  },
+
+  // ---- One-time legacy data migrations ----
+  // Add new entries here as the schema evolves; each migration is guarded so it only
+  // ever runs once per browser profile (tracked in localStorage) regardless of how
+  // many times the app boots. Call Models.migrateLegacyData() once at startup.
+  MIGRATIONS: [
+    {
+      // Relationships used to carry a single `type` string (e.g. 'family'); they now
+      // carry `tagIds`, an array into the per-work relationshipTags store. Absorb any
+      // remaining legacy relationships by finding-or-creating a same-labeled tag.
+      id: 'relationship-type-to-tagids-v4',
+      async run() {
+        const LEGACY_TYPE_LABELS = { family: '가족', lover: '연인', friend: '친구', ally: '동료', rival: '라이벌', enemy: '적', other: '기타' };
+        const works = await DB.getAll('works');
+        for (const work of works) {
+          const chars = await DB.getAllByIndex('characters', 'workId', work.id);
+          const needsWork = chars.some((c) => (c.relationships || []).some((r) => !r.tagIds && r.type));
+          if (!needsWork) continue;
+
+          const tagByLabel = Object.fromEntries((await Models.getRelationshipTags(work.id)).map((t) => [t.label, t]));
+          async function findOrCreateTag(label) {
+            if (tagByLabel[label]) return tagByLabel[label];
+            const seed = Models.DEFAULT_RELATIONSHIP_TAGS.find((d) => d.label === label);
+            const tag = await Models.createRelationshipTag(work.id, { label, color: seed ? seed.color : '#9297a8' });
+            tagByLabel[label] = tag;
+            return tag;
+          }
+
+          for (const c of chars) {
+            let changed = false;
+            for (const r of c.relationships || []) {
+              if (!r.tagIds && r.type) {
+                const label = LEGACY_TYPE_LABELS[r.type] || r.type;
+                const tag = await findOrCreateTag(label);
+                r.tagIds = [tag.id];
+                delete r.type;
+                changed = true;
+              }
+            }
+            if (changed) await DB.put('characters', c);
+          }
+        }
+      },
+    },
+  ],
+
+  async migrateLegacyData() {
+    const KEY = 'sw-migrations-done';
+    let done = [];
+    try {
+      done = JSON.parse(localStorage.getItem(KEY) || '[]');
+    } catch (e) {
+      done = [];
+    }
+    for (const migration of Models.MIGRATIONS) {
+      if (done.includes(migration.id)) continue;
+      await migration.run();
+      done.push(migration.id);
+      localStorage.setItem(KEY, JSON.stringify(done));
+    }
   },
 };

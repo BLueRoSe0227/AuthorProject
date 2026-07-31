@@ -1,7 +1,7 @@
 // IndexedDB data layer
 const DB_NAME = 'AuthorProjectDB';
-const DB_VERSION = 3;
-const STORE_NAMES = ['works', 'chapters', 'scenes', 'sceneVersions', 'characters', 'settingNotes', 'memos', 'schedules', 'writingLog', 'relationshipTags', 'characterGroups'];
+const DB_VERSION = 5;
+const STORE_NAMES = ['works', 'chapters', 'scenes', 'sceneVersions', 'characters', 'settingNotes', 'memos', 'schedules', 'writingLog', 'relationshipTags', 'characterGroups', 'memoGroups', 'memoConnections', 'submissions'];
 
 let dbInstance = null;
 
@@ -68,6 +68,21 @@ function openDB() {
       if (!db.objectStoreNames.contains('characterGroups')) {
         const characterGroups = db.createObjectStore('characterGroups', { keyPath: 'id' });
         characterGroups.createIndex('workId', 'workId');
+      }
+
+      if (!db.objectStoreNames.contains('memoGroups')) {
+        const memoGroups = db.createObjectStore('memoGroups', { keyPath: 'id' });
+        memoGroups.createIndex('workId', 'workId');
+      }
+
+      if (!db.objectStoreNames.contains('memoConnections')) {
+        const memoConnections = db.createObjectStore('memoConnections', { keyPath: 'id' });
+        memoConnections.createIndex('workId', 'workId');
+      }
+
+      if (!db.objectStoreNames.contains('submissions')) {
+        const submissions = db.createObjectStore('submissions', { keyPath: 'id' });
+        submissions.createIndex('workId', 'workId');
       }
     };
     req.onsuccess = (e) => {

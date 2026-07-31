@@ -1,6 +1,7 @@
 Views.inbox = async function (workId) {
   const content = document.getElementById('content');
   const qId = Router.query().get('id');
+  const view = Router.query().get('view') || 'list';
 
   content.innerHTML = `
     <div class="view view--inbox">
@@ -9,17 +10,37 @@ Views.inbox = async function (workId) {
           <h1>📥 메모 인박스</h1>
           <p class="muted">떠오른 아이디어를 빠르게 적어두세요. 나중에 통합 검색으로 다시 찾을 수 있어요.</p>
         </div>
-        <div class="inbox-tabs">
-          <button class="tab-btn tab-btn--active" data-tab="active">활성</button>
-          <button class="tab-btn" data-tab="archived">보관됨</button>
+        <div class="char-view-tabs">
+          <button class="chip ${view === 'list' ? 'chip--active' : ''}" id="tabList">📋 목록</button>
+          <button class="chip ${view === 'board' ? 'chip--active' : ''}" id="tabBoard">🗺️ 보드</button>
         </div>
       </header>
-      <div class="memo-composer">
-        <textarea id="memoInput" class="textarea" rows="3" placeholder="빠르게 메모하기... (Ctrl+Enter로 저장, [[이름]]으로 연결)"></textarea>
-        <button class="btn btn--primary" id="memoAddBtn">추가</button>
-      </div>
-      <div class="memo-grid" id="memoGrid"></div>
+      <div id="inboxBody"></div>
     </div>
+  `;
+
+  document.getElementById('tabList').addEventListener('click', () => Router.go(`#/work/${workId}/inbox?view=list`));
+  document.getElementById('tabBoard').addEventListener('click', () => Router.go(`#/work/${workId}/inbox?view=board`));
+
+  if (view === 'board') {
+    await MemoCanvas.mount(document.getElementById('inboxBody'), workId);
+    return;
+  }
+  await renderListView(workId, qId);
+};
+
+async function renderListView(workId, qId) {
+  const body = document.getElementById('inboxBody');
+  body.innerHTML = `
+    <div class="inbox-tabs">
+      <button class="tab-btn tab-btn--active" data-tab="active">활성</button>
+      <button class="tab-btn" data-tab="archived">보관됨</button>
+    </div>
+    <div class="memo-composer">
+      <textarea id="memoInput" class="textarea" rows="3" placeholder="빠르게 메모하기... (Ctrl+Enter로 저장, [[이름]]으로 연결)"></textarea>
+      <button class="btn btn--primary" id="memoAddBtn">추가</button>
+    </div>
+    <div class="memo-grid" id="memoGrid"></div>
   `;
 
   const textarea = document.getElementById('memoInput');

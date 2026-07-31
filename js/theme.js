@@ -33,6 +33,23 @@ const Theme = {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   },
 
+  // WCAG 2.x relative luminance / contrast ratio (see https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio).
+  // Used to flag palettes whose accent color would be hard to read against the page background.
+  relativeLuminance(hex) {
+    const h = hex.trim().replace('#', '');
+    const channels = [0, 2, 4]
+      .map((i) => parseInt(h.substring(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  },
+
+  contrastRatio(hex1, hex2) {
+    const L1 = Theme.relativeLuminance(hex1);
+    const L2 = Theme.relativeLuminance(hex2);
+    const [lighter, darker] = L1 > L2 ? [L1, L2] : [L2, L1];
+    return (lighter + 0.05) / (darker + 0.05);
+  },
+
   get() {
     return {
       mode: localStorage.getItem(THEME_KEYS.mode) || 'system',
@@ -99,6 +116,7 @@ const Theme = {
         Theme.setMode(m);
         modeRow.querySelectorAll('button').forEach((b) => b.classList.remove('btn--active'));
         btn.classList.add('btn--active');
+        renderList(); // low-contrast warnings depend on the resolved background, which just changed
       });
       modeRow.appendChild(btn);
     });
@@ -110,6 +128,8 @@ const Theme = {
 
     function renderList() {
       listEl.innerHTML = '';
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+        || (Theme.resolvedMode(Theme.get().mode) === 'light' ? '#f7f7fb' : '#0f1117');
       THEME_PALETTES[activeStyle].forEach((palette, idx) => {
         const current = Theme.get();
         const selected = current.style === activeStyle && current.paletteIdx === idx;
@@ -126,9 +146,17 @@ const Theme = {
           strip.appendChild(block);
         });
 
+        const ratio = Theme.contrastRatio(palette.colors[palette.accentIndex], bg);
+        const lowContrast = ratio < 4.5;
+
         const label = document.createElement('div');
         label.className = 'palette-row__label';
-        label.innerHTML = `<span>${palette.name}</span>${selected ? '<span class="palette-row__check">✓ 적용됨</span>' : ''}`;
+        label.innerHTML = `
+          <span>${palette.name}</span>
+          <span class="palette-row__right">
+            ${lowContrast ? `<span class="palette-row__warn" title="강조색과 배경의 대비가 WCAG AA 기준(4.5:1) 미달이에요 (${ratio.toFixed(1)}:1). 텍스트에는 저대비로 보일 수 있어요.">⚠️ 대비 낮음</span>` : ''}
+            ${selected ? '<span class="palette-row__check">✓ 적용됨</span>' : ''}
+          </span>`;
 
         row.appendChild(strip);
         row.appendChild(label);

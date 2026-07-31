@@ -52,8 +52,12 @@ function renderFontTab(container) {
       <div class="chip-row" id="fontRow"></div>
     </div>
     <div class="settings-section">
-      <h4>화면 크기</h4>
+      <h4>전체 화면 배율 <span class="muted">(버튼·카드 등 화면 전체가 함께 커져요)</span></h4>
       <div class="chip-row" id="scaleRow"></div>
+    </div>
+    <div class="settings-section">
+      <h4>본문 글자 크기 <span class="muted">(원고 에디터의 글자만 커져요)</span></h4>
+      <div class="chip-row" id="textSizeRow"></div>
     </div>
     <div class="settings-section">
       <h4>원고 자동저장 간격</h4>
@@ -90,6 +94,20 @@ function renderFontTab(container) {
       btn.classList.add('chip--active');
     });
     scaleRow.appendChild(btn);
+  });
+
+  const textSizeRow = container.querySelector('#textSizeRow');
+  Object.keys(PREF_TEXT_SIZE_LABELS).forEach((key) => {
+    const btn = document.createElement('button');
+    btn.className = 'chip' + (prefs.textSize === key ? ' chip--active' : '');
+    btn.textContent = PREF_TEXT_SIZE_LABELS[key];
+    btn.style.fontSize = key === 'small' ? '11px' : key === 'large' ? '14px' : key === 'xlarge' ? '15px' : '12px';
+    btn.addEventListener('click', () => {
+      Prefs.setTextSize(key);
+      textSizeRow.querySelectorAll('.chip').forEach((b) => b.classList.remove('chip--active'));
+      btn.classList.add('chip--active');
+    });
+    textSizeRow.appendChild(btn);
   });
 
   const autosaveSelect = container.querySelector('#autosaveSelect');

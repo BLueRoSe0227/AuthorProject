@@ -9,7 +9,23 @@ Views.editWorkFlow = async function (work) {
       <label>한 줄 소개</label>
       <textarea class="textarea" id="editWorkDesc" rows="3">${Utils.escapeHtml(work.description || '')}</textarea>
     </div>
+    <div class="form-field">
+      <label>작품 형식</label>
+      <div class="radio-group" id="editFormatGroup">${Views.renderFormatRadioGroup(work.format || 'book')}</div>
+    </div>
+    <div class="form-field" id="editLengthField" ${work.format === 'webnovel' ? 'hidden' : ''}>
+      <label>작품 유형 <span class="muted">(단행본 분량 기준)</span></label>
+      <div class="radio-group" id="editLengthGroup">${Views.renderLengthRadioGroup(work.length)}</div>
+    </div>
+    <div class="form-field">
+      <label>장르 (선택)</label>
+      ${Views.renderGenreSelect(work.genre)}
+    </div>
   `;
+  Views.bindLengthRadioGroup(wrap);
+  Views.bindFormatRadioGroup(wrap, (format) => {
+    wrap.querySelector('#editLengthField').hidden = format === 'webnovel';
+  });
   const { close } = UI.openModal({
     title: '작품 정보 수정',
     bodyEl: wrap,
@@ -34,7 +50,10 @@ Views.editWorkFlow = async function (work) {
         onClick: async () => {
           const title = wrap.querySelector('#editWorkTitle').value.trim();
           const description = wrap.querySelector('#editWorkDesc').value.trim();
-          await Models.updateWork(work.id, { title, description });
+          const length = wrap.querySelector('input[name="length"]:checked').value;
+          const format = wrap.querySelector('input[name="format"]:checked').value;
+          const genre = wrap.querySelector('#workGenreSelect').value || null;
+          await Models.updateWork(work.id, { title, description, length, format, genre });
           close();
           await App.refreshWorkSwitcher();
           Views.dashboard(work.id);
@@ -48,16 +67,26 @@ Views.dashboard = async function (workId) {
   const content = document.getElementById('content');
   const bundle = await Models.getWorkBundle(workId);
   if (!bundle.work) { Router.go('#/'); return; }
-  const stats = await Models.getWorkStats(workId);
+  const [stats, goalSummary, submissions] = await Promise.all([
+    Models.getWorkStats(workId),
+    Models.getGoalSummary(workId),
+    Models.getSubmissions(workId),
+  ]);
+  const work = bundle.work;
+  const isWebnovel = work.format === 'webnovel';
+  const todayPct = goalSummary.todayProgress !== null ? Math.round(goalSummary.todayProgress * 100) : null;
 
   content.innerHTML = `
     <div class="view view--dashboard">
       <header class="view__header">
         <div>
-          <h1>${Utils.escapeHtml(bundle.work.title)}<span class="length-badge">${bundle.work.length === 'short' ? '단편' : '장편'}</span></h1>
-          <p class="muted">${Utils.escapeHtml(bundle.work.description || '소개가 없습니다')}</p>
+          <h1>${Utils.escapeHtml(work.title)}<span class="length-badge">${isWebnovel ? '📡 웹소설' : Models.LENGTH_LABELS[work.length] || '장편'}</span>${work.genre && Models.GENRE_TEMPLATES[work.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[work.genre].label}</span>` : ''}</h1>
+          <p class="muted">${Utils.escapeHtml(work.description || '소개가 없습니다')}</p>
         </div>
-        <button class="btn btn--ghost" id="editWorkBtn">✎ 편집</button>
+        <div class="home-header-actions">
+          <button class="btn btn--ghost" id="exportWorkBtn">📤 내보내기</button>
+          <button class="btn btn--ghost" id="editWorkBtn">✎ 편집</button>
+        </div>
       </header>
 
       <div class="stat-row">
@@ -67,6 +96,8 @@ Views.dashboard = async function (workId) {
         <div class="stat-tile"><span class="stat-tile__num text-pal-4">${stats.characterCount}</span><span class="stat-tile__label">캐릭터</span></div>
         <div class="stat-tile"><span class="stat-tile__num text-pal-5">${stats.settingCount}</span><span class="stat-tile__label">설정</span></div>
         <div class="stat-tile"><span class="stat-tile__num text-accent">${stats.memoCount}</span><span class="stat-tile__label">메모</span></div>
+        <div class="stat-tile"><span class="stat-tile__num text-pal-2">🔥${goalSummary.streak}</span><span class="stat-tile__label">연속 집필일</span></div>
+        <div class="stat-tile"><span class="stat-tile__num text-accent">${todayPct === null ? '–' : todayPct + '%'}</span><span class="stat-tile__label">오늘 목표</span></div>
       </div>
 
       <div class="dashboard-grid">
@@ -83,7 +114,7 @@ Views.dashboard = async function (workId) {
             </div>
           </div>
           <div class="graph-canvas-wrap">
-            <canvas id="graphCanvas"></canvas>
+            <canvas id="graphCanvas" role="img" aria-label="작품, 챕터, 장면, 캐릭터, 설정, 메모 간의 연결망 그래프. 드래그·마우스 전용이며, 각 항목 목록은 왼쪽 사이드바의 원고/캐릭터/설정 노트/메모 인박스 화면에서도 확인할 수 있습니다."></canvas>
             <p class="graph-hint">드래그로 노드 이동 · 휠로 확대/축소 · 클릭으로 이동. 본문에 <code>[[이름]]</code>을 쓰면 캐릭터·설정·장면과 자동으로 연결됩니다.</p>
           </div>
         </div>
@@ -107,12 +138,19 @@ Views.dashboard = async function (workId) {
           <h3>📅 다가오는 일정 <button class="btn btn--ghost btn--sm" id="goToGoalsBtn">전체 보기</button></h3>
           <div id="widgetScheduleList"></div>
         </div>
+        ${isWebnovel ? renderSerialWidgetHtml(bundle.chapters, workId) : ''}
+        ${submissions.length ? renderSubmissionWidgetHtml(submissions, workId) : ''}
       </div>
     </div>
   `;
 
   document.getElementById('editWorkBtn').addEventListener('click', () => Views.editWorkFlow(bundle.work));
   document.getElementById('goToGoalsBtn').addEventListener('click', () => Router.go(`#/work/${workId}/goals`));
+  document.getElementById('exportWorkBtn').addEventListener('click', () => Views.exportManuscriptFlow(workId));
+  const goToSerialBtn = document.getElementById('goToSerialBtn');
+  if (goToSerialBtn) goToSerialBtn.addEventListener('click', () => Router.go(`#/work/${workId}/manuscript`));
+  const goToSubmissionBtn = document.getElementById('goToSubmissionBtn');
+  if (goToSubmissionBtn) goToSubmissionBtn.addEventListener('click', () => Router.go(`#/work/${workId}/goals`));
 
   async function renderMemoWidget() {
     const memos = (await DB.getAllByIndex('memos', 'workId', workId)).filter((m) => !m.archived);
@@ -199,3 +237,31 @@ Views.dashboard = async function (workId) {
     });
   }
 };
+
+function renderSerialWidgetHtml(chapters, workId) {
+  const sorted = [...chapters].sort((a, b) => a.order - b.order);
+  const serialized = sorted.filter((c) => c.serializedAt);
+  const nextUp = sorted.find((c) => !c.serializedAt);
+  const lastDate = serialized.length ? serialized.map((c) => c.serializedAt).sort().slice(-1)[0] : null;
+  return `
+    <div class="widget-card">
+      <h3>📡 연재 현황 <button class="btn btn--ghost btn--sm" id="goToSerialBtn">원고로</button></h3>
+      <div class="widget-schedule-item"><span>연재된 회차</span><span class="text-pal-2">${serialized.length} / ${sorted.length}</span></div>
+      ${lastDate ? `<div class="widget-schedule-item"><span>최근 연재일</span><span class="muted">${lastDate}</span></div>` : ''}
+      ${nextUp ? `<div class="widget-schedule-item"><span>다음 예정</span><span class="text-accent">${Utils.escapeHtml(nextUp.title)}</span></div>` : `<p class="muted">모든 챕터가 연재되었습니다.</p>`}
+    </div>`;
+}
+
+function renderSubmissionWidgetHtml(submissions, workId) {
+  const counts = {};
+  Models.SUBMISSION_STATUSES.forEach((s) => (counts[s] = 0));
+  submissions.forEach((s) => (counts[s.status] = (counts[s.status] || 0) + 1));
+  const recent = submissions[0];
+  return `
+    <div class="widget-card">
+      <h3>📮 투고 현황 <button class="btn btn--ghost btn--sm" id="goToSubmissionBtn">전체 보기</button></h3>
+      <div class="widget-schedule-item"><span>총 투고</span><span class="text-pal-4">${submissions.length}건</span></div>
+      <div class="widget-schedule-item"><span>검토중 / 합격 / 불합격</span><span class="muted">${counts['검토중']} / ${counts['합격']} / ${counts['불합격']}</span></div>
+      ${recent ? `<div class="widget-schedule-item"><span>최근 투고</span><span class="text-accent">${Utils.escapeHtml(recent.publisher)}</span></div>` : ''}
+    </div>`;
+}

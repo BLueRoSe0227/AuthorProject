@@ -1,0 +1,20 @@
+{
+  "name": "storyweaver",
+  "private": true,
+  "version": "1.0.0",
+  "description": "웹소설·장편소설 작가를 위한 원고·캐릭터·설정·메모 통합 창작 워크스페이스",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0",
+    "jsdom": "^30.0.1",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "@fontsource/dongle": "^5.3.0",
+    "@fontsource/gaegu": "^5.3.0",
+    "@fontsource/nanum-brush-script": "^5.3.0",
+    "@fontsource/nanum-pen-script": "^5.3.0"
+  }
+}

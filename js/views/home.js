@@ -1,5 +1,70 @@
 const Views = {};
 
+const WORK_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+const LENGTH_OPTIONS = [
+  { value: 'long', desc: '여러 챕터로 이어지는 연재형 작품' },
+  { value: 'medium', desc: '몇 개 챕터로 완결되는 중간 길이 작품' },
+  { value: 'short', desc: '한두 챕터로 완결되는 짧은 작품' },
+];
+
+// Shared by the "새 작품 만들기" and "작품 정보 수정" modals.
+Views.renderLengthRadioGroup = function (selectedValue) {
+  return LENGTH_OPTIONS.map(
+    (o) => `
+      <label class="radio-chip${o.value === selectedValue ? ' radio-chip--selected' : ''}" data-value="${o.value}">
+        <input type="radio" name="length" value="${o.value}" ${o.value === selectedValue ? 'checked' : ''}>
+        <strong>${Models.LENGTH_LABELS[o.value]}</strong>
+        <span>${o.desc}</span>
+      </label>
+    `
+  ).join('');
+};
+
+Views.bindLengthRadioGroup = function (wrap) {
+  wrap.querySelectorAll('.radio-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      wrap.querySelectorAll('.radio-chip').forEach((c) => c.classList.remove('radio-chip--selected'));
+      chip.classList.add('radio-chip--selected');
+      chip.querySelector('input').checked = true;
+    });
+  });
+};
+
+const FORMAT_OPTIONS = [
+  { value: 'book', desc: '장편/중편/단편 분량 구분을 쓰는 완결형 원고' },
+  { value: 'webnovel', desc: '챕터마다 연재 여부·연재일을 기록하는 연재형 작품' },
+];
+
+// Shared "작품 형식" (단행본/웹소설) chip group — mirrors renderLengthRadioGroup.
+Views.renderFormatRadioGroup = function (selectedValue) {
+  return FORMAT_OPTIONS.map(
+    (o) => `
+      <label class="radio-chip${o.value === selectedValue ? ' radio-chip--selected' : ''}" data-value="${o.value}">
+        <input type="radio" name="format" value="${o.value}" ${o.value === selectedValue ? 'checked' : ''}>
+        <strong>${Models.FORMAT_LABELS[o.value]}</strong>
+        <span>${o.desc}</span>
+      </label>
+    `
+  ).join('');
+};
+
+Views.bindFormatRadioGroup = function (wrap, onChange) {
+  wrap.querySelectorAll('.radio-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      wrap.querySelectorAll('.radio-chip').forEach((c) => c.classList.remove('radio-chip--selected'));
+      chip.classList.add('radio-chip--selected');
+      chip.querySelector('input').checked = true;
+      if (onChange) onChange(chip.dataset.value);
+    });
+  });
+};
+
+Views.renderGenreSelect = function (selectedValue) {
+  const options = [`<option value=""${selectedValue ? '' : ' selected'}>장르 없음</option>`]
+    .concat(Object.entries(Models.GENRE_TEMPLATES).map(([key, g]) => `<option value="${key}" ${key === selectedValue ? 'selected' : ''}>${g.label}</option>`));
+  return `<select class="input" id="workGenreSelect">${options.join('')}</select>`;
+};
+
 Views.createWorkFlow = async function () {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
@@ -12,29 +77,28 @@ Views.createWorkFlow = async function () {
       <textarea class="textarea" id="newWorkDesc" rows="3" placeholder="이 작품을 한두 문장으로 설명해보세요"></textarea>
     </div>
     <div class="form-field">
-      <label>작품 유형</label>
-      <div class="radio-group" id="lengthGroup">
-        <label class="radio-chip radio-chip--selected" data-value="long">
-          <input type="radio" name="length" value="long" checked>
-          <strong>장편</strong>
-          <span>여러 챕터로 이어지는 연재형 작품</span>
-        </label>
-        <label class="radio-chip" data-value="short">
-          <input type="radio" name="length" value="short">
-          <strong>단편</strong>
-          <span>한두 챕터로 완결되는 짧은 작품</span>
-        </label>
-      </div>
+      <label>작품 형식</label>
+      <div class="radio-group" id="formatGroup">${Views.renderFormatRadioGroup('book')}</div>
+    </div>
+    <div class="form-field" id="lengthField">
+      <label>작품 유형 <span class="muted">(단행본 분량 기준)</span></label>
+      <div class="radio-group" id="lengthGroup">${Views.renderLengthRadioGroup('long')}</div>
+    </div>
+    <div class="form-field">
+      <label>장르 (선택)</label>
+      ${Views.renderGenreSelect(null)}
+    </div>
+    <div class="form-field" id="genreTemplateField" hidden>
+      <label class="checkbox-field"><input type="checkbox" id="genreTemplateCheck" checked> 장르에 맞는 시작용 설정 노트 만들기</label>
     </div>
     <div class="form-field">
       <label>색상</label>
       <div class="color-swatches" id="colorSwatches"></div>
     </div>
   `;
-  const colors = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
-  let selectedColor = colors[0];
+  let selectedColor = WORK_COLORS[0];
   const swatchWrap = wrap.querySelector('#colorSwatches');
-  colors.forEach((c) => {
+  WORK_COLORS.forEach((c) => {
     const sw = document.createElement('div');
     sw.className = 'color-swatch' + (c === selectedColor ? ' color-swatch--selected' : '');
     sw.style.background = c;
@@ -46,12 +110,12 @@ Views.createWorkFlow = async function () {
     swatchWrap.appendChild(sw);
   });
 
-  wrap.querySelectorAll('.radio-chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      wrap.querySelectorAll('.radio-chip').forEach((c) => c.classList.remove('radio-chip--selected'));
-      chip.classList.add('radio-chip--selected');
-      chip.querySelector('input').checked = true;
-    });
+  Views.bindLengthRadioGroup(wrap);
+  Views.bindFormatRadioGroup(wrap, (format) => {
+    wrap.querySelector('#lengthField').hidden = format === 'webnovel';
+  });
+  wrap.querySelector('#workGenreSelect').addEventListener('change', (e) => {
+    wrap.querySelector('#genreTemplateField').hidden = !e.target.value;
   });
 
   const { close } = UI.openModal({
@@ -66,7 +130,11 @@ Views.createWorkFlow = async function () {
           const title = wrap.querySelector('#newWorkTitle').value.trim();
           const description = wrap.querySelector('#newWorkDesc').value.trim();
           const length = wrap.querySelector('input[name="length"]:checked').value;
-          const work = await Models.createWork({ title, description, color: selectedColor, length });
+          const format = wrap.querySelector('input[name="format"]:checked').value;
+          const genre = wrap.querySelector('#workGenreSelect').value || null;
+          const applyTemplate = wrap.querySelector('#genreTemplateCheck').checked;
+          const work = await Models.createWork({ title, description, color: selectedColor, length, format, genre });
+          if (genre && applyTemplate) await Models.applyGenreTemplate(work.id, genre);
           close();
           await App.refreshWorkSwitcher();
           Router.go(`#/work/${work.id}/dashboard`);
@@ -89,7 +157,13 @@ Views.home = async function () {
           <h1>내 작품들</h1>
           <p class="muted">원고, 캐릭터, 설정, 메모를 한 곳에서 관리하세요.</p>
         </div>
-        <button class="btn btn--pal-work" id="newWorkBtn">+ 새 작품</button>
+        <div class="home-header-actions">
+          <button class="btn btn--ghost btn--sm" id="homeHelpBtn" title="둘러보기 다시 보기">❓</button>
+          <button class="btn btn--ghost btn--sm" id="homeSearchBtn" title="통합 검색">🔍</button>
+          <button class="btn btn--ghost btn--sm" id="homeTimerBtn" title="타이머">⏱</button>
+          <button class="btn btn--ghost btn--sm" id="homeSettingsBtn" title="설정">⚙</button>
+          <button class="btn btn--pal-work" id="newWorkBtn">+ 새 작품</button>
+        </div>
       </header>
 
       ${
@@ -114,6 +188,13 @@ Views.home = async function () {
   const emptyBtn = document.getElementById('newWorkBtnEmpty');
   if (emptyBtn) emptyBtn.addEventListener('click', Views.createWorkFlow);
 
+  // The sidebar is hidden on this landing page (see App.onNavigate), so offer the
+  // same search/timer/settings entry points inline here instead.
+  document.getElementById('homeHelpBtn').addEventListener('click', () => Onboarding.show());
+  document.getElementById('homeSearchBtn').addEventListener('click', () => Router.go('#/search'));
+  document.getElementById('homeTimerBtn').addEventListener('click', (e) => Timer.openPopover(e.currentTarget));
+  document.getElementById('homeSettingsBtn').addEventListener('click', () => Views.openSettings(null));
+
   if (works.length) {
     const grid = document.getElementById('workGrid');
     for (const w of works) {
@@ -134,7 +215,7 @@ Views.home = async function () {
       card.innerHTML = `
         <div class="work-card__color" style="background:${w.color}"></div>
         <div class="work-card__body">
-          <h3>${Utils.escapeHtml(w.title)}<span class="length-badge">${w.length === 'short' ? '단편' : '장편'}</span></h3>
+          <h3>${Utils.escapeHtml(w.title)}<span class="length-badge">${w.format === 'webnovel' ? '📡 웹소설' : Models.LENGTH_LABELS[w.length] || '장편'}</span>${w.genre && Models.GENRE_TEMPLATES[w.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[w.genre].label}</span>` : ''}</h3>
           <p class="muted">${Utils.escapeHtml(Utils.truncate(w.description, 70) || '소개가 없습니다')}</p>
           <div class="work-card__progress">
             ${

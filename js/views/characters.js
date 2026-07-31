@@ -104,6 +104,73 @@ function openGroupModal(workId, group, allChars, onDone) {
   const { close } = UI.openModal({ title: group ? '그룹 편집' : '새 그룹 만들기', bodyEl: wrap, actions });
 }
 
+// Shared by the list-view detail pane and the relationship map's node panel, so
+// relationships can be added from either place (the map is mouse/drag-only, so the
+// list view is the keyboard-reachable path).
+function openAddRelationshipModal(workId, fromChar, characters, tags, onDone) {
+  const others = characters.filter((x) => x.id !== fromChar.id);
+  if (!others.length) { UI.toast('다른 캐릭터가 먼저 필요합니다'); return; }
+  if (!tags.length) { UI.toast('설정에서 관계 해시태그를 먼저 추가해주세요'); return; }
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="form-field">
+      <label>대상 캐릭터</label>
+      <select class="input" id="relTarget">${others.map((o) => `<option value="${o.id}">${Utils.escapeHtml(o.name)}</option>`).join('')}</select>
+    </div>
+    <div class="form-field">
+      <label>관계 유형 <span class="muted">(해시태그를 여러 개 선택할 수 있어요)</span></label>
+      <div class="hashtag-chip-row" id="relTagRow"></div>
+    </div>
+    <div class="form-field">
+      <label>표시할 라벨 (선택)</label>
+      <input type="text" class="input" id="relLabel" placeholder="예: 이복동생, 첫사랑">
+    </div>
+    <div class="form-field">
+      <label>메모 (선택)</label>
+      <textarea class="textarea" id="relNote" rows="3"></textarea>
+    </div>
+  `;
+  const selectedTagIds = new Set();
+  const tagRow = wrap.querySelector('#relTagRow');
+  tags.forEach((t) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'hashtag-chip';
+    chip.style.setProperty('--tag-color', t.color);
+    chip.textContent = `#${t.label}`;
+    chip.addEventListener('click', () => {
+      if (selectedTagIds.has(t.id)) {
+        selectedTagIds.delete(t.id);
+        chip.classList.remove('hashtag-chip--selected');
+      } else {
+        selectedTagIds.add(t.id);
+        chip.classList.add('hashtag-chip--selected');
+      }
+    });
+    tagRow.appendChild(chip);
+  });
+
+  const { close } = UI.openModal({
+    title: `${fromChar.name}의 관계 추가`,
+    bodyEl: wrap,
+    actions: [
+      { label: '취소', onClick: () => close() },
+      {
+        label: '추가', primary: true,
+        onClick: async () => {
+          if (!selectedTagIds.size) { UI.toast('관계 해시태그를 하나 이상 선택해주세요', 'error'); return; }
+          const targetId = wrap.querySelector('#relTarget').value;
+          const label = wrap.querySelector('#relLabel').value.trim();
+          const note = wrap.querySelector('#relNote').value.trim();
+          await Models.addRelationship(fromChar.id, { targetId, tagIds: [...selectedTagIds], label, note });
+          close();
+          onDone();
+        },
+      },
+    ],
+  });
+}
+
 async function renderListView(workId, qId) {
   const body = document.getElementById('charBody');
   body.innerHTML = `
@@ -233,33 +300,54 @@ async function renderListView(workId, qId) {
           <textarea class="textarea" id="fNotes" rows="4">${Utils.escapeHtml(c.notes || '')}</textarea>
         </div>
         <div class="form-field">
-          <label>인물관계 <span class="muted">(인물관계도 화면에서 자세히 관리)</span></label>
+          <label>인물관계 <span class="muted">(인물관계도 화면에서 그룹 색 등 시각적으로도 확인할 수 있어요)</span></label>
           <div id="relSummary" class="rel-summary"></div>
+          <button class="btn btn--ghost btn--sm" id="addRelBtn" style="margin-top:8px;">+ 관계 추가</button>
         </div>
-        <span class="save-indicator" id="saveIndicator">저장됨</span>
+        <span class="save-indicator" id="saveIndicator" aria-live="polite">저장됨</span>
       </div>
     `;
 
-    const relSummary = document.getElementById('relSummary');
-    const [allChars, tags] = await Promise.all([
-      DB.getAllByIndex('characters', 'workId', workId),
-      Models.getRelationshipTags(workId),
-    ]);
-    const charById = Object.fromEntries(allChars.map((x) => [x.id, x]));
-    const tagById = Object.fromEntries(tags.map((t) => [t.id, t]));
-    if (!c.relationships || !c.relationships.length) {
-      relSummary.innerHTML = `<p class="muted">아직 등록된 관계가 없습니다.</p>`;
-    } else {
-      c.relationships.forEach((r) => {
-        const relTags = Models.relationshipTagIds(r).map((id) => tagById[id]).filter(Boolean);
-        const dotColor = relTags[0] ? relTags[0].color : '#9297a8';
-        const tagLabel = relTags.map((t) => t.label).join(' · ');
-        const row = document.createElement('div');
-        row.className = 'rel-list-item';
-        row.innerHTML = `<span class="rel-list-item__dot" style="background:${dotColor}"></span><span class="rel-list-item__label">${Utils.escapeHtml(charById[r.targetId] ? charById[r.targetId].name : '?')} · ${Utils.escapeHtml(r.label || tagLabel || '관계')}</span>`;
-        relSummary.appendChild(row);
-      });
+    // A keyboard-reachable path to add/remove relationships that doesn't require the
+    // mouse-only relationship map — the map remains available for visual browsing.
+    async function renderRelSummary() {
+      const relSummary = document.getElementById('relSummary');
+      const fresh = await DB.get('characters', c.id);
+      c.relationships = fresh ? fresh.relationships || [] : [];
+      const [allChars, tags] = await Promise.all([
+        DB.getAllByIndex('characters', 'workId', workId),
+        Models.getRelationshipTags(workId),
+      ]);
+      const charById = Object.fromEntries(allChars.map((x) => [x.id, x]));
+      const tagById = Object.fromEntries(tags.map((t) => [t.id, t]));
+      relSummary.innerHTML = '';
+      if (!c.relationships.length) {
+        relSummary.innerHTML = `<p class="muted">아직 등록된 관계가 없습니다.</p>`;
+      } else {
+        c.relationships.forEach((r, idx) => {
+          const relTags = Models.relationshipTagIds(r).map((id) => tagById[id]).filter(Boolean);
+          const dotColor = relTags[0] ? relTags[0].color : '#9297a8';
+          const tagLabel = relTags.map((t) => t.label).join(' · ');
+          const row = document.createElement('div');
+          row.className = 'rel-list-item';
+          const targetName = charById[r.targetId] ? charById[r.targetId].name : '?';
+          row.innerHTML = `
+            <span class="rel-list-item__dot" style="background:${dotColor}"></span>
+            <span class="rel-list-item__label">${Utils.escapeHtml(targetName)} · ${Utils.escapeHtml(r.label || tagLabel || '관계')}</span>
+            <button class="icon-btn" aria-label="${Utils.escapeHtml(targetName)}와의 관계 삭제" title="삭제">✕</button>
+          `;
+          row.querySelector('button').addEventListener('click', async () => {
+            await Models.removeRelationship(c.id, idx);
+            await renderRelSummary();
+          });
+          relSummary.appendChild(row);
+        });
+      }
+      document.getElementById('addRelBtn').onclick = async () => {
+        openAddRelationshipModal(workId, c, allChars, tags, renderRelSummary);
+      };
     }
+    await renderRelSummary();
 
     const indicator = document.getElementById('saveIndicator');
     const fields = ['fName', 'fRole', 'fAppearance', 'fPersonality', 'fBackground', 'fNotes'];
@@ -317,7 +405,7 @@ async function renderRelationshipMap(workId) {
   const body = document.getElementById('charBody');
   body.innerHTML = `
     <div class="rel-map-wrap">
-      <canvas id="relMapCanvas"></canvas>
+      <canvas id="relMapCanvas" role="img" aria-label="캐릭터 간 관계도. 드래그·마우스 전용입니다. 관계를 추가·삭제하려면 '📋 목록' 탭에서 캐릭터를 선택한 뒤 '인물관계' 항목을 이용해주세요."></canvas>
       <div class="rel-legend" id="relLegend"></div>
       <p class="rel-hint">드래그로 인물 위치 이동 · 클릭으로 관계 관리</p>
     </div>
@@ -412,74 +500,10 @@ async function renderRelationshipMap(workId) {
     }
 
     panel.querySelector('#closePanelBtn').addEventListener('click', () => panel.remove());
-    panel.querySelector('#addRelBtn').addEventListener('click', () => openAddRelationshipModal(c, characters, async () => {
+    panel.querySelector('#addRelBtn').addEventListener('click', () => openAddRelationshipModal(workId, c, characters, tags, async () => {
       panel.remove();
       await refreshMap();
     }));
-  }
-
-  function openAddRelationshipModal(fromChar, characters, onDone) {
-    const others = characters.filter((x) => x.id !== fromChar.id);
-    if (!others.length) { UI.toast('다른 캐릭터가 먼저 필요합니다'); return; }
-    if (!tags.length) { UI.toast('설정에서 관계 해시태그를 먼저 추가해주세요'); return; }
-    const wrap = document.createElement('div');
-    wrap.innerHTML = `
-      <div class="form-field">
-        <label>대상 캐릭터</label>
-        <select class="input" id="relTarget">${others.map((o) => `<option value="${o.id}">${Utils.escapeHtml(o.name)}</option>`).join('')}</select>
-      </div>
-      <div class="form-field">
-        <label>관계 유형 <span class="muted">(해시태그를 여러 개 선택할 수 있어요)</span></label>
-        <div class="hashtag-chip-row" id="relTagRow"></div>
-      </div>
-      <div class="form-field">
-        <label>표시할 라벨 (선택)</label>
-        <input type="text" class="input" id="relLabel" placeholder="예: 이복동생, 첫사랑">
-      </div>
-      <div class="form-field">
-        <label>메모 (선택)</label>
-        <textarea class="textarea" id="relNote" rows="3"></textarea>
-      </div>
-    `;
-    const selectedTagIds = new Set();
-    const tagRow = wrap.querySelector('#relTagRow');
-    tags.forEach((t) => {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'hashtag-chip';
-      chip.style.setProperty('--tag-color', t.color);
-      chip.textContent = `#${t.label}`;
-      chip.addEventListener('click', () => {
-        if (selectedTagIds.has(t.id)) {
-          selectedTagIds.delete(t.id);
-          chip.classList.remove('hashtag-chip--selected');
-        } else {
-          selectedTagIds.add(t.id);
-          chip.classList.add('hashtag-chip--selected');
-        }
-      });
-      tagRow.appendChild(chip);
-    });
-
-    const { close } = UI.openModal({
-      title: `${fromChar.name}의 관계 추가`,
-      bodyEl: wrap,
-      actions: [
-        { label: '취소', onClick: () => close() },
-        {
-          label: '추가', primary: true,
-          onClick: async () => {
-            if (!selectedTagIds.size) { UI.toast('관계 해시태그를 하나 이상 선택해주세요', 'error'); return; }
-            const targetId = wrap.querySelector('#relTarget').value;
-            const label = wrap.querySelector('#relLabel').value.trim();
-            const note = wrap.querySelector('#relNote').value.trim();
-            await Models.addRelationship(fromChar.id, { targetId, tagIds: [...selectedTagIds], label, note });
-            close();
-            onDone();
-          },
-        },
-      ],
-    });
   }
 
   await refreshMap();
