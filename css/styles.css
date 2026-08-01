@@ -558,6 +558,25 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .version-row__actions { display: flex; gap: 6px; }
 .version-preview { margin-top: 8px; padding: 8px; background: var(--bg-elevated-2); border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.6; max-height: 200px; overflow-y: auto; }
 
+/* ---------------- Proofreader (맞춤법 검사 / 사전 검색) ---------------- */
+.proofread-panel { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.proofread-panel__summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.proofread-issue { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+.proofread-issue__head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+.proofread-issue__badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--bg-elevated-2); color: var(--text-secondary); flex-shrink: 0; white-space: nowrap; }
+.proofread-issue__badge--spelling { background: var(--accent-soft); color: var(--accent); }
+.proofread-issue__badge--spacing { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
+.proofread-issue__badge--expression { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.proofread-issue__excerpt { font-size: 13px; line-height: 1.5; }
+.proofread-issue__excerpt mark { background: var(--accent-soft); color: var(--accent); padding: 0 2px; border-radius: 3px; }
+.proofread-issue__msg { margin: 4px 0 8px; font-size: 12.5px; color: var(--text-secondary); }
+.proofread-issue__dict { margin-bottom: 8px; font-size: 12px; }
+.proofread-issue__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.dict-lookup { display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto; }
+.dict-lookup__item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; }
+.dict-lookup__item p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12.5px; }
+
 /* ---------------- Context menu ---------------- */
 .context-menu {
   position: fixed;

@@ -26,6 +26,8 @@ const FILE_EXPORTS = {
   'js/zipWriter.js': ['ZipWriter'],
   'js/docxWriter.js': ['DocxWriter'],
   'js/manuscriptExport.js': ['ManuscriptExport'],
+  'js/proofreaderRules.js': ['ProofreaderRules'],
+  'js/proofreader.js': ['Proofreader'],
 };
 
 export function loadDomScripts(relPaths) {

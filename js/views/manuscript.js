@@ -466,6 +466,7 @@ Views.manuscript = async function (workId, sceneId) {
             <option value="done" ${scene.status === 'done' ? 'selected' : ''}>완료</option>
           </select>
           <span class="save-indicator" aria-live="polite">저장됨</span>
+          <button class="btn btn--ghost btn--sm proofread-btn">✓ 맞춤법 검사</button>
           <button class="btn btn--ghost btn--sm history-btn">🕐 버전 기록</button>
         </div>
         <div class="rich-editor-mount"></div>
@@ -536,6 +537,7 @@ Views.manuscript = async function (workId, sceneId) {
     }, Prefs.get().autosaveDelay));
 
     body.querySelector('.history-btn').addEventListener('click', () => openVersionHistory(scene.id, () => mountPane(index, paneSceneId)));
+    body.querySelector('.proofread-btn').addEventListener('click', () => openProofreadPanel(richHandle.el));
 
     body.addEventListener('mousedown', () => { activePaneIndex = index; });
     richHandle.focus();
@@ -579,6 +581,96 @@ Views.manuscript = async function (workId, sceneId) {
       });
     }
     UI.openModal({ title: '버전 기록', bodyEl: wrap, width: '560px' });
+  }
+
+  const PROOFREAD_CATEGORY_LABELS = { spelling: '맞춤법', spacing: '띄어쓰기', expression: '표현' };
+
+  // Builds "…앞부분[문제 구간]뒷부분…" excerpt HTML with the matched span wrapped
+  // in <mark>, escaping each slice separately so user text can't inject markup.
+  function proofreadExcerptHtml(text, issue, pad = 12) {
+    const start = Math.max(0, issue.index - pad);
+    const end = Math.min(text.length, issue.index + issue.length + pad);
+    const before = Utils.escapeHtml(text.slice(start, issue.index));
+    const mid = Utils.escapeHtml(text.slice(issue.index, issue.index + issue.length));
+    const after = Utils.escapeHtml(text.slice(issue.index + issue.length, end));
+    return `${start > 0 ? '…' : ''}${before}<mark>${mid}</mark>${after}${end < text.length ? '…' : ''}`;
+  }
+
+  // contentEl is the live RichEditor DOM node (richHandle.el) — issues are recomputed
+  // from its current textContent after every apply, since a replacement shifts every
+  // later offset and re-scanning is far simpler than patching offsets by hand.
+  function openProofreadPanel(contentEl) {
+    const wrap = document.createElement('div');
+    wrap.className = 'proofread-panel';
+    let issues = Proofreader.check(contentEl.textContent);
+    render();
+
+    function render() {
+      wrap.innerHTML = '';
+      if (!issues.length) {
+        wrap.innerHTML = `<div class="empty-state empty-state--small"><div class="empty-state__icon">✅</div><p class="muted">발견된 문제가 없습니다.</p></div>`;
+        return;
+      }
+      const summary = document.createElement('div');
+      summary.className = 'proofread-panel__summary';
+      const fixableCount = issues.filter((it) => it.suggestion).length;
+      summary.innerHTML = `<span class="muted">${issues.length}건 발견 (자동 교정 가능 ${fixableCount}건)</span>`;
+      if (fixableCount > 1) {
+        const applyAllBtn = document.createElement('button');
+        applyAllBtn.className = 'btn btn--ghost btn--sm';
+        applyAllBtn.textContent = '모두 적용';
+        applyAllBtn.addEventListener('click', () => {
+          // Descending order so applying one fix never shifts the index of another
+          // still-pending fix — lets the whole batch run without a re-scan in between.
+          issues.filter((it) => it.suggestion).sort((a, b) => b.index - a.index)
+            .forEach((it) => Proofreader.applyFix(contentEl, it));
+          issues = Proofreader.check(contentEl.textContent);
+          render();
+        });
+        summary.appendChild(applyAllBtn);
+      }
+      wrap.appendChild(summary);
+
+      issues.forEach((issue) => {
+        const row = document.createElement('div');
+        row.className = 'proofread-issue';
+        row.innerHTML = `
+          <div class="proofread-issue__head">
+            <span class="proofread-issue__badge proofread-issue__badge--${issue.category}">${PROOFREAD_CATEGORY_LABELS[issue.category] || '기타'}</span>
+            <span class="proofread-issue__excerpt">${proofreadExcerptHtml(contentEl.textContent, issue)}</span>
+          </div>
+          <p class="proofread-issue__msg">${Utils.escapeHtml(issue.message)}</p>
+          <div class="proofread-issue__dict" hidden></div>
+          <div class="proofread-issue__actions">
+            ${issue.suggestion ? `<button class="btn btn--ghost btn--sm apply-btn">"${Utils.escapeHtml(issue.original)}" → "${Utils.escapeHtml(issue.suggestion)}" 적용</button>` : ''}
+            <button class="btn btn--ghost btn--sm ignore-btn">무시</button>
+          </div>
+        `;
+        if (issue.dictWord) {
+          const dictEl = row.querySelector('.proofread-issue__dict');
+          Proofreader.lookupWord(issue.dictWord).then((results) => {
+            if (!results.length || !dictEl.isConnected) return;
+            dictEl.hidden = false;
+            dictEl.innerHTML = `<span class="muted">표준국어대사전: <strong>${Utils.escapeHtml(results[0].word)}</strong> — ${Utils.escapeHtml(Utils.truncate(results[0].definition, 60))}</span>`;
+          }).catch(() => {}); // dictionary proxy unavailable — rule explanation above still stands on its own
+        }
+        const applyBtn = row.querySelector('.apply-btn');
+        if (applyBtn) {
+          applyBtn.addEventListener('click', () => {
+            Proofreader.applyFix(contentEl, issue);
+            issues = Proofreader.check(contentEl.textContent);
+            render();
+          });
+        }
+        row.querySelector('.ignore-btn').addEventListener('click', () => {
+          issues = issues.filter((it) => it.id !== issue.id);
+          render();
+        });
+        wrap.appendChild(row);
+      });
+    }
+
+    UI.openModal({ title: '맞춤법·어문규범 검사', bodyEl: wrap, width: '560px' });
   }
 
   if (!sceneId) {

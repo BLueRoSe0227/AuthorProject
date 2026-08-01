@@ -40,6 +40,8 @@ const RichEditor = {
         <button type="button" class="rich-btn" data-cmd="insertHorizontalRule" title="구분선">―</button>
         <button type="button" class="rich-btn" data-action="image" title="이미지 삽입">🖼</button>
         <button type="button" class="rich-btn" data-action="table" title="표 삽입">▦</button>
+        <span class="rich-toolbar__sep"></span>
+        <button type="button" class="rich-btn" data-action="dict" title="선택한 단어를 표준국어대사전에서 찾기">🔎</button>
         <span class="rich-toolbar__sep rich-toolbar__sep--table-only"></span>
         <button type="button" class="rich-btn rich-btn--sm" data-action="addRow" title="행 추가">+행</button>
         <button type="button" class="rich-btn rich-btn--sm" data-action="addCol" title="열 추가">+열</button>
@@ -198,7 +200,36 @@ const RichEditor = {
       reader.readAsDataURL(file);
     });
 
-    const actionHandlers = { link: insertLink, image: insertImage, table: insertTable, addRow, addCol, removeRow, removeCol };
+    async function lookupSelectionInDictionary() {
+      const sel = window.getSelection();
+      const text = sel && !sel.isCollapsed && contentEl.contains(sel.anchorNode) ? sel.toString().trim() : '';
+      if (!text) { UI.toast('사전에서 찾아볼 단어를 먼저 선택해주세요'); return; }
+
+      const wrap = document.createElement('div');
+      wrap.className = 'dict-lookup';
+      wrap.innerHTML = `<p class="muted">"${Utils.escapeHtml(text)}" 검색 중...</p>`;
+      UI.openModal({ title: '표준국어대사전', bodyEl: wrap, width: '420px' });
+
+      try {
+        let results = await Proofreader.lookupWord(text, 'exact');
+        if (!results.length) results = await Proofreader.lookupWord(text, 'include');
+        if (!results.length) {
+          wrap.innerHTML = `<p class="muted">"${Utils.escapeHtml(text)}"에 대한 검색 결과가 없습니다.</p>`;
+          return;
+        }
+        wrap.innerHTML = '';
+        results.slice(0, 8).forEach((r) => {
+          const item = document.createElement('div');
+          item.className = 'dict-lookup__item';
+          item.innerHTML = `<strong>${Utils.escapeHtml(r.word)}</strong> <span class="muted">${Utils.escapeHtml(r.pos)}</span><p>${Utils.escapeHtml(r.definition)}</p>`;
+          wrap.appendChild(item);
+        });
+      } catch (err) {
+        wrap.innerHTML = `<p class="muted">사전 조회에 실패했습니다: ${Utils.escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    const actionHandlers = { link: insertLink, image: insertImage, table: insertTable, addRow, addCol, removeRow, removeCol, dict: lookupSelectionInDictionary };
 
     wrap.querySelectorAll('[data-cmd]').forEach((btn) => {
       if (btn.tagName === 'SELECT') {
