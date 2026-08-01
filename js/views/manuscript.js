@@ -699,6 +699,8 @@ Views.manuscript = async function (workId, sceneId) {
   // span inside contentEl, via one pair of delegated listeners rather than binding
   // per-span (spans get added/removed throughout a review session by markIssues/
   // applyMark/unwrapMark, so per-span listeners would need constant re-attaching).
+  // Returns { showForId } so the ◀/▶ nav buttons in openProofreadReview can drive
+  // the same popover programmatically, not just hover/click.
   function attachProofreadPopover(contentEl, issuesById, onResolved) {
     let popEl = null;
     let hideTimer = null;
@@ -744,6 +746,16 @@ Views.manuscript = async function (workId, sceneId) {
       const span = e.target.closest('.proofread-mark');
       if (span) show(span);
     });
+
+    return {
+      showForId(issueId) {
+        // CSS.escape guards against issue ids that happen to contain quote/special
+        // characters — AI-sourced ids embed the actual matched manuscript text
+        // (see Proofreader.checkOnline), which isn't under our control.
+        const span = contentEl.querySelector(`.proofread-mark[data-issue-id="${CSS.escape(issueId)}"]`);
+        if (span) show(span);
+      },
+    };
   }
 
   // contentEl is the live RichEditor DOM node (richHandle.el). Marks issues directly
@@ -762,9 +774,13 @@ Views.manuscript = async function (workId, sceneId) {
     const bar = document.createElement('div');
     bar.className = 'proofread-bar';
     bar.innerHTML = `
-      <span class="proofread-bar__status muted">검사 중...</span>
+      <span class="proofread-bar__status muted"><span class="proofread-spinner"></span>검사 중...</span>
       <div class="proofread-bar__filters" hidden>
         ${PROOFREAD_FILTERS.map((f) => `<button class="chip${f.key === 'all' ? ' chip--active' : ''}" data-filter="${f.key}">${f.label}</button>`).join('')}
+      </div>
+      <div class="proofread-bar__nav" hidden>
+        <button class="icon-btn proofread-bar__prev" title="이전 항목">◀</button>
+        <button class="icon-btn proofread-bar__next" title="다음 항목">다음 ▶</button>
       </div>
       <button class="btn btn--ghost btn--sm proofread-bar__done">검토 종료</button>
     `;
@@ -772,14 +788,44 @@ Views.manuscript = async function (workId, sceneId) {
 
     const statusEl = bar.querySelector('.proofread-bar__status');
     const filtersEl = bar.querySelector('.proofread-bar__filters');
+    const navEl = bar.querySelector('.proofread-bar__nav');
 
     const issuesById = new Map();
-    function updateStatus(extra = '') {
+    let navIndex = -1; // index into the *currently visible* .proofread-mark list, not issuesById directly
+
+    // Only local rules' (instant) vs. still-waiting-on-AI states get distinct
+    // wording+spinner — once both are done (or AI failed), the spinner goes away.
+    function setStatus(text, { loading = false } = {}) {
+      statusEl.innerHTML = loading ? `<span class="proofread-spinner"></span>${Utils.escapeHtml(text)}` : Utils.escapeHtml(text);
+    }
+    function updateStatus(extra = '', loading = false) {
       filtersEl.hidden = issuesById.size === 0;
-      statusEl.textContent = issuesById.size ? `${issuesById.size}건 남음${extra}` : `발견된 문제가 없습니다${extra}`;
+      navEl.hidden = issuesById.size === 0;
+      setStatus(issuesById.size ? `${issuesById.size}건 남음${extra}` : `발견된 문제가 없습니다${extra}`, { loading });
     }
 
-    attachProofreadPopover(contentEl, issuesById, updateStatus);
+    const popover = attachProofreadPopover(contentEl, issuesById, () => updateStatus());
+
+    // Visible, unresolved marks in document order — driven off the live DOM (not
+    // issuesById's insertion order) so ◀/▶ always matches what's actually on screen,
+    // including whatever the current category filter has hidden.
+    function visibleMarkIds() {
+      return [...contentEl.querySelectorAll('.proofread-mark:not(.proofread-mark--hidden)')]
+        .map((el) => el.dataset.issueId)
+        .filter((id) => issuesById.has(id));
+    }
+    function goToIssue(step) {
+      const ids = visibleMarkIds();
+      if (!ids.length) { UI.toast('표시된 항목이 없습니다'); return; }
+      navIndex = ((navIndex + step) % ids.length + ids.length) % ids.length;
+      const id = ids[navIndex];
+      const span = contentEl.querySelector(`.proofread-mark[data-issue-id="${CSS.escape(id)}"]`);
+      if (!span) return;
+      span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      popover.showForId(id);
+    }
+    bar.querySelector('.proofread-bar__prev').addEventListener('click', () => goToIssue(-1));
+    bar.querySelector('.proofread-bar__next').addEventListener('click', () => goToIssue(1));
 
     bar.querySelector('.proofread-bar__done').addEventListener('click', () => {
       Proofreader.unmarkAll(contentEl);
@@ -795,12 +841,16 @@ Views.manuscript = async function (workId, sceneId) {
       contentEl.querySelectorAll('.proofread-mark').forEach((span) => {
         span.classList.toggle('proofread-mark--hidden', filter !== 'all' && !span.classList.contains(`proofread-mark--${filter}`));
       });
+      navIndex = -1; // the filtered set changed shape — restart nav from the top
     });
 
     const localIssues = Proofreader.check(contentEl.textContent);
     Proofreader.markIssues(contentEl, localIssues);
     localIssues.forEach((it) => issuesById.set(it.id, it));
-    updateStatus();
+    // Local rules are synchronous, but the AI pass below can take a couple of
+    // seconds (two network round trips) — keep the spinner running through it so
+    // "검사 중" doesn't silently stop looking like it's doing anything.
+    updateStatus(' · AI 검사 중', true);
 
     Proofreader.checkOnline(contentEl.textContent).then(({ issues: aiIssuesRaw, truncated }) => {
       if (!bar.isConnected) return; // review ended before this resolved

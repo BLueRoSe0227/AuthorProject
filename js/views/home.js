@@ -182,6 +182,17 @@ Views.home = async function () {
             </div>`
       }
 
+      ${
+        works.length
+          ? `<section class="home-calendar">
+              <h2>📅 전체 일정</h2>
+              <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요.</p>
+              <div class="home-calendar__legend" id="homeCalendarLegend"></div>
+              <div id="homeCalendarArea"></div>
+            </section>`
+          : ''
+      }
+
       <section class="home-inbox">
         <h2>📥 전체 메모</h2>
         <div id="homeMemoList" class="memo-list"></div>
@@ -207,13 +218,15 @@ Views.home = async function () {
     // instant client-side re-render instead of re-querying IndexedDB for every card.
     const cardDataByWork = {};
     await Promise.all(works.map(async (w) => {
-      const [stats, goal, recent, relData] = await Promise.all([
+      const [stats, goal, recent, relData, memos] = await Promise.all([
         Models.getWorkStats(w.id),
         Models.getGoalSummary(w.id),
-        Models.getRecentActivity(w.id, 1),
+        Models.getRecentActivity(w.id, 6), // over-fetched, then split into 최근 작업 vs 메모 blocks below
         Models.getRelationshipGraphData(w.id),
+        DB.getAllByIndex('memos', 'workId', w.id),
       ]);
-      cardDataByWork[w.id] = { stats, goal, recent, relData };
+      const activeMemos = memos.filter((m) => !m.archived).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      cardDataByWork[w.id] = { stats, goal, recent: recent.filter((r) => r.type !== 'memo'), memos: activeMemos, relData };
     }));
 
     const SORT_KEY = 'sw-home-sort';
@@ -233,14 +246,30 @@ Views.home = async function () {
     function renderGrid() {
       grid.innerHTML = '';
       sortedWorks().forEach((w) => {
-        const { stats, goal, recent, relData } = cardDataByWork[w.id];
+        const { stats, goal, recent, memos, relData } = cardDataByWork[w.id];
         const todoCount = goal.upcoming.filter((i) => !i.completed).length;
         const connectionCount = stats.characterCount + stats.settingCount + stats.memoCount;
         const progressPct = goal.totalProgress !== null ? Math.round(goal.totalProgress * 100) : null;
-        const recentItem = recent[0];
-        const recentPalClass = recentItem ? `text-pal-${Graph.ENTITY_PAL[recentItem.type]}`.replace('text-pal-accent', 'text-accent') : '';
         const nextUpcoming = goal.upcoming.find((i) => !i.completed && i.date >= Utils.todayStr());
         const showMiniGraph = relData.characters.length >= 2 && relData.edges.length >= 1;
+
+        // 🕸️ 연결망 / 📌 메모 / 📝 최근 작업 — three always-present blocks (each with its
+        // own empty state) rather than the single-line "show if present" rows this
+        // card used to have, so every card reads as a consistent mini-dashboard.
+        const graphBlockHtml = showMiniGraph
+          ? `<div class="work-card__mini-graph"><canvas></canvas></div>`
+          : `<p class="muted work-card__block-empty">${relData.characters.length < 2 ? '캐릭터가 아직 부족해요' : '등록된 관계가 없어요'}</p>`;
+
+        const memoBlockHtml = memos.length
+          ? memos.slice(0, 2).map((m) => `<div class="work-card__memo-item">${Utils.escapeHtml(Utils.truncate(m.content, 50)) || '<span class="muted">(빈 메모)</span>'}</div>`).join('')
+          : `<p class="muted work-card__block-empty">메모가 없어요</p>`;
+
+        const recentBlockHtml = recent.length
+          ? recent.slice(0, 2).map((r) => {
+              const palClass = `text-pal-${Graph.ENTITY_PAL[r.type]}`.replace('text-pal-accent', 'text-accent');
+              return `<div class="work-card__recent"><span class="${palClass}">${UI.icon(r.type)}</span><span class="work-card__recent-title">${Utils.escapeHtml(r.title)}</span><span class="muted">${Utils.formatDate(r.updatedAt)}</span></div>`;
+            }).join('')
+          : `<p class="muted work-card__block-empty">활동이 없어요</p>`;
 
         const card = document.createElement('div');
         card.className = 'work-card work-card--rich';
@@ -267,17 +296,23 @@ Views.home = async function () {
               <span class="work-card__chip text-pal-1">✅ ${todoCount}</span>
               <span class="work-card__chip muted">🕸️ ${connectionCount}개 연결</span>
             </div>
-            ${showMiniGraph ? `<div class="work-card__mini-graph"><canvas></canvas></div>` : ''}
             ${
               nextUpcoming
                 ? `<div class="work-card__upcoming">📅 <span class="work-card__upcoming-title">${Utils.escapeHtml(nextUpcoming.title)}</span><span class="muted">${Utils.formatDday(nextUpcoming.date)}</span></div>`
                 : ''
             }
-            ${
-              recentItem
-                ? `<div class="work-card__recent"><span class="${recentPalClass}">${UI.icon(recentItem.type)}</span><span class="work-card__recent-title">${Utils.escapeHtml(recentItem.title)}</span><span class="muted">${Utils.formatDate(recentItem.updatedAt)}</span></div>`
-                : ''
-            }
+            <div class="work-card__block">
+              <div class="work-card__block-label">🕸️ 연결망</div>
+              ${graphBlockHtml}
+            </div>
+            <div class="work-card__block">
+              <div class="work-card__block-label">📌 메모</div>
+              ${memoBlockHtml}
+            </div>
+            <div class="work-card__block">
+              <div class="work-card__block-label">📝 최근 작업</div>
+              ${recentBlockHtml}
+            </div>
           </div>
         `;
         card.addEventListener('click', () => Router.go(`#/work/${w.id}/dashboard`));
@@ -299,6 +334,101 @@ Views.home = async function () {
     });
 
     renderGrid();
+
+    // Legend: one dot per work so the (work-colored) event chips in the calendar
+    // below are identifiable without opening each one.
+    const legendEl = document.getElementById('homeCalendarLegend');
+    works.forEach((w) => {
+      const dot = document.createElement('span');
+      dot.className = 'home-calendar__legend-item';
+      dot.innerHTML = `<i style="background:${w.color}"></i>${Utils.escapeHtml(w.title)}`;
+      legendEl.appendChild(dot);
+    });
+
+    // Every schedule/chapter-deadline/work-target-date across every work, each
+    // tagged with its own work's id/title/color — goal.upcoming was already fetched
+    // per work above (cardDataByWork), so this is just a flatten, no extra queries.
+    const aggregateEvents = works.flatMap((w) =>
+      cardDataByWork[w.id].goal.upcoming.map((item) => ({ ...item, workId: w.id, workTitle: w.title, workColor: w.color }))
+    );
+    const calendarArea = document.getElementById('homeCalendarArea');
+    let calendarCursor = new Date();
+
+    function renderHomeCalendar() {
+      calendarArea.innerHTML = `
+        <div class="calendar">
+          <div class="calendar__head">
+            <button class="btn btn--ghost btn--sm" id="homeCalPrev">◀</button>
+            <h3 id="homeCalMonthLabel"></h3>
+            <button class="btn btn--ghost btn--sm" id="homeCalNext">▶</button>
+          </div>
+          <div class="calendar__grid" id="homeCalGrid"></div>
+        </div>
+      `;
+      document.getElementById('homeCalPrev').addEventListener('click', () => {
+        calendarCursor.setMonth(calendarCursor.getMonth() - 1);
+        renderHomeCalendar();
+      });
+      document.getElementById('homeCalNext').addEventListener('click', () => {
+        calendarCursor.setMonth(calendarCursor.getMonth() + 1);
+        renderHomeCalendar();
+      });
+
+      const year = calendarCursor.getFullYear();
+      const month = calendarCursor.getMonth();
+      document.getElementById('homeCalMonthLabel').textContent = `${year}년 ${month + 1}월`;
+
+      const grid = document.getElementById('homeCalGrid');
+      grid.innerHTML = '';
+      ['월', '화', '수', '목', '금', '토', '일'].forEach((d) => {
+        const el = document.createElement('div');
+        el.className = 'calendar__dow';
+        el.textContent = d;
+        grid.appendChild(el);
+      });
+
+      const firstDay = new Date(year, month, 1);
+      const startOffset = (firstDay.getDay() + 6) % 7; // Monday = 0
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const todayKey = Utils.todayStr();
+
+      const eventsByDate = {};
+      aggregateEvents.forEach((item) => {
+        // Multi-day schedules (item.endDate set) show on every day in the range —
+        // capped at 31 iterations so a bad/huge endDate can't fan out indefinitely.
+        const start = new Date(item.date);
+        const end = item.endDate ? new Date(item.endDate) : start;
+        for (let d = new Date(start), i = 0; d <= end && i < 31; d.setDate(d.getDate() + 1), i++) {
+          const key = Utils.dateStr(d);
+          eventsByDate[key] = eventsByDate[key] || [];
+          eventsByDate[key].push(item);
+        }
+      });
+
+      for (let i = 0; i < startOffset; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'calendar__cell calendar__cell--muted';
+        grid.appendChild(cell);
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const cell = document.createElement('div');
+        cell.className = 'calendar__cell' + (key === todayKey ? ' calendar__cell--today' : '');
+        cell.innerHTML = `<div class="calendar__cell-date">${d}</div>`;
+        (eventsByDate[key] || []).forEach((item) => {
+          const ev = document.createElement('div');
+          ev.className = 'calendar__event' + (item.completed ? ' calendar__event--done' : '');
+          ev.style.background = `color-mix(in srgb, ${item.workColor} 18%, transparent)`;
+          ev.style.color = item.workColor;
+          ev.title = `${item.workTitle} · ${item.title}`;
+          ev.textContent = item.title;
+          ev.addEventListener('click', () => Router.go(`#/work/${item.workId}/goals`));
+          cell.appendChild(ev);
+        });
+        grid.appendChild(cell);
+      }
+    }
+    renderHomeCalendar();
   }
 
   const allMemos = await DB.getAll('memos');
