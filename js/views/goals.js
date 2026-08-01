@@ -20,6 +20,12 @@ Views.goals = async function (workId) {
       <div class="chapter-goal-list" id="chapterGoalList"></div>
 
       <div class="goals-section-title">
+        <span>🏆 미션</span>
+        <button class="btn btn--ghost btn--sm" id="addMissionBtn">+ 미션 추가</button>
+      </div>
+      <div class="mission-list" id="missionList"></div>
+
+      <div class="goals-section-title">
         <span>📮 투고 내역</span>
         <button class="btn btn--ghost btn--sm" id="addSubmissionBtn">+ 투고 추가</button>
       </div>
@@ -41,8 +47,10 @@ Views.goals = async function (workId) {
 
   await renderGoalsGrid();
   await renderChapterGoals();
+  await renderMissions();
   await renderSubmissions();
   document.getElementById('addSubmissionBtn').addEventListener('click', () => openSubmissionModal());
+  document.getElementById('addMissionBtn').addEventListener('click', () => openMissionModal());
 
   let scheduleMode = 'calendar';
   let calendarCursor = new Date();
@@ -213,6 +221,140 @@ Views.goals = async function (workId) {
     });
   }
 
+  const MISSION_KIND_OPTIONS = [
+    { value: 'streak', desc: '예: 5일 연속 500자 이상 쓰기 — 목표치를 채운 날이 연속되는지 자동으로 추적' },
+    { value: 'total', desc: '예: 이번 주 안에 10,000자 쓰기 — 기간 내 누적 집필량을 자동으로 추적' },
+    { value: 'custom', desc: '예: 이번 챕터 완결하기 — 자동 추적 없이 직접 완료 체크' },
+  ];
+
+  async function renderMissions() {
+    const missions = await Models.getMissionsForWork(workId);
+    const list = document.getElementById('missionList');
+    list.innerHTML = '';
+    if (!missions.length) {
+      list.innerHTML = `<p class="muted">아직 미션이 없습니다. 스트릭이나 기간 목표 같은 도전과제를 추가해보세요.</p>`;
+      return;
+    }
+    for (const m of missions) {
+      const { progress, current, target, done } = await Models.getMissionProgress(m);
+      const pct = progress === null ? null : Math.round(progress * 100);
+      const row = document.createElement('div');
+      row.className = 'mission-card' + (done ? ' mission-card--done' : '');
+      row.innerHTML = `
+        <div class="mission-card__head">
+          <span class="mission-card__kind text-accent">${Models.MISSION_KIND_LABELS[m.kind]}</span>
+          <strong>${Utils.escapeHtml(m.title)}</strong>
+          ${done ? '<span class="mission-card__done-badge">✅</span>' : ''}
+        </div>
+        ${
+          pct !== null
+            ? `<div class="progress-bar"><div class="progress-bar__fill${pct >= 100 ? ' progress-bar__fill--done' : ''}" style="width:${Math.min(100, pct)}%"></div></div><div class="mission-card__meta muted">${(current || 0).toLocaleString()} / ${target.toLocaleString()}${m.kind === 'streak' ? '일' : '자'}</div>`
+            : m.kind === 'streak' && current
+              ? `<div class="mission-card__meta muted">🔥 ${current}일 연속 (목표 일수 미설정)</div>`
+              : `<div class="mission-card__meta muted">${m.startDate}${m.endDate ? ' ~ ' + m.endDate : ''}</div>`
+        }
+        <div class="mission-card__actions">
+          ${m.kind === 'custom' ? `<button class="btn btn--ghost btn--sm toggle-mission-btn">${done ? '완료 취소' : '완료로 표시'}</button>` : ''}
+          <button class="btn btn--ghost btn--sm edit-mission-btn">✎ 편집</button>
+        </div>
+      `;
+      if (m.kind === 'custom') {
+        row.querySelector('.toggle-mission-btn').addEventListener('click', async () => {
+          await Models.updateMission(m.id, { completed: !m.completed });
+          await renderMissions();
+        });
+      }
+      row.querySelector('.edit-mission-btn').addEventListener('click', () => openMissionModal(m));
+      list.appendChild(row);
+    }
+  }
+
+  function openMissionModal(existing) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div class="form-field">
+        <label>미션 이름</label>
+        <input type="text" class="input" id="mTitle" value="${Utils.escapeHtml(existing?.title || '')}" placeholder="예: 3일 연속 500자">
+      </div>
+      <div class="form-field">
+        <label>종류</label>
+        <div class="radio-group" id="mKindGroup">${MISSION_KIND_OPTIONS.map((o) => `
+          <label class="radio-chip${o.value === (existing?.kind || 'streak') ? ' radio-chip--selected' : ''}" data-value="${o.value}">
+            <input type="radio" name="mKind" value="${o.value}" ${o.value === (existing?.kind || 'streak') ? 'checked' : ''}>
+            <strong>${Models.MISSION_KIND_LABELS[o.value]}</strong>
+            <span>${o.desc}</span>
+          </label>`).join('')}</div>
+      </div>
+      <div class="form-field" id="mTargetField">
+        <label id="mTargetLabel">목표</label>
+        <input type="number" min="0" class="input" id="mTarget" value="${existing?.targetValue || ''}">
+      </div>
+      <div class="form-field" id="mTargetDaysField">
+        <label>목표 일수 (연속으로 며칠 채우면 완료로 볼지 — 비우면 목표 없이 기록만)</label>
+        <input type="number" min="0" class="input" id="mTargetDays" value="${existing?.targetDays || ''}">
+      </div>
+      <div class="form-field">
+        <label>시작일</label>
+        <input type="date" class="input" id="mStart" value="${existing?.startDate || Utils.todayStr()}">
+      </div>
+      <div class="form-field">
+        <label>종료일 (선택 — 비우면 계속 진행)</label>
+        <input type="date" class="input" id="mEnd" value="${existing?.endDate || ''}">
+      </div>
+    `;
+    wrap.querySelectorAll('#mKindGroup .radio-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        wrap.querySelectorAll('#mKindGroup .radio-chip').forEach((c) => c.classList.remove('radio-chip--selected'));
+        chip.classList.add('radio-chip--selected');
+        chip.querySelector('input').checked = true;
+        updateTargetLabel(chip.dataset.value);
+      });
+    });
+    function updateTargetLabel(kind) {
+      const field = wrap.querySelector('#mTargetField');
+      const label = wrap.querySelector('#mTargetLabel');
+      const daysField = wrap.querySelector('#mTargetDaysField');
+      daysField.hidden = kind !== 'streak';
+      if (kind === 'custom') { field.hidden = true; return; }
+      field.hidden = false;
+      label.textContent = kind === 'streak' ? '하루 목표 글자수' : '기간 내 목표 글자수';
+    }
+    updateTargetLabel(existing?.kind || 'streak');
+
+    const actions = [
+      { label: '취소', onClick: () => close() },
+      {
+        label: existing ? '저장' : '추가', primary: true,
+        onClick: async () => {
+          const kind = wrap.querySelector('input[name="mKind"]:checked').value;
+          const data = {
+            title: wrap.querySelector('#mTitle').value.trim() || '새 미션',
+            kind,
+            targetValue: kind === 'custom' ? 0 : parseInt(wrap.querySelector('#mTarget').value, 10) || 0,
+            targetDays: kind === 'streak' ? parseInt(wrap.querySelector('#mTargetDays').value, 10) || 0 : 0,
+            startDate: wrap.querySelector('#mStart').value || Utils.todayStr(),
+            endDate: wrap.querySelector('#mEnd').value || null,
+          };
+          if (existing) await Models.updateMission(existing.id, data);
+          else await Models.createMission(workId, data);
+          close();
+          await renderMissions();
+        },
+      },
+    ];
+    if (existing) {
+      actions.splice(1, 0, {
+        label: '삭제', danger: true,
+        onClick: async () => {
+          await Models.deleteMission(existing.id);
+          close();
+          await renderMissions();
+        },
+      });
+    }
+    const { close } = UI.openModal({ title: existing ? '미션 편집' : '미션 추가', bodyEl: wrap, actions });
+  }
+
   const SUBMISSION_STATUS_CLASS = { 검토중: 'text-pal-2', 합격: 'text-pal-3', 불합격: 'text-danger', 보류: 'muted' };
 
   async function renderSubmissions() {
@@ -289,6 +431,7 @@ Views.goals = async function (workId) {
   }
 
   function openScheduleModal(existing) {
+    const allDay = existing ? existing.allDay !== false : true;
     const wrap = document.createElement('div');
     wrap.innerHTML = `
       <div class="form-field">
@@ -300,18 +443,41 @@ Views.goals = async function (workId) {
         <input type="date" class="input" id="schDate" value="${existing?.date || Utils.todayStr()}">
       </div>
       <div class="form-field">
+        <label>종료일 (선택, 여러 날에 걸친 일정일 때)</label>
+        <input type="date" class="input" id="schEndDate" value="${existing?.endDate || ''}">
+      </div>
+      <div class="form-field">
+        <label class="checkbox-field"><input type="checkbox" id="schAllDay" ${allDay ? 'checked' : ''}> 종일</label>
+      </div>
+      <div class="form-field" id="schTimeField" ${allDay ? 'hidden' : ''}>
+        <label>시간</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="time" class="input" id="schStartTime" value="${existing?.startTime || ''}">
+          <span class="muted">~</span>
+          <input type="time" class="input" id="schEndTime" value="${existing?.endTime || ''}">
+        </div>
+      </div>
+      <div class="form-field">
         <label>목표 글자수 (선택)</label>
         <input type="number" min="0" class="input" id="schChars" value="${existing?.targetChars || ''}">
       </div>
     `;
+    wrap.querySelector('#schAllDay').addEventListener('change', (e) => {
+      wrap.querySelector('#schTimeField').hidden = e.target.checked;
+    });
     const actions = [
       { label: '취소', onClick: () => close() },
       {
         label: existing ? '저장' : '추가', primary: true,
         onClick: async () => {
+          const isAllDay = wrap.querySelector('#schAllDay').checked;
           const data = {
             title: wrap.querySelector('#schTitle').value.trim() || '새 일정',
             date: wrap.querySelector('#schDate').value || Utils.todayStr(),
+            endDate: wrap.querySelector('#schEndDate').value || null,
+            allDay: isAllDay,
+            startTime: isAllDay ? null : wrap.querySelector('#schStartTime').value || null,
+            endTime: isAllDay ? null : wrap.querySelector('#schEndTime').value || null,
             targetChars: parseInt(wrap.querySelector('#schChars').value, 10) || 0,
           };
           if (existing) await Models.updateSchedule(existing.id, data);
@@ -352,7 +518,7 @@ Views.goals = async function (workId) {
           <span class="schedule-card__dday ${kindPalClass[item.kind] || 'text-accent'}">${Utils.formatDday(item.date)}</span>
           <div class="schedule-card__body">
             <div class="schedule-card__title">${Utils.escapeHtml(item.title)}</div>
-            <div class="schedule-card__meta">${item.date}${item.targetChars ? ' · 목표 ' + item.targetChars.toLocaleString() + '자' : ''}</div>
+            <div class="schedule-card__meta">${item.date}${item.endDate ? ' ~ ' + item.endDate : ''}${item.allDay === false && item.startTime ? ' · ' + item.startTime + (item.endTime ? '~' + item.endTime : '') : ''}${item.targetChars ? ' · 목표 ' + item.targetChars.toLocaleString() + '자' : ''}</div>
           </div>
           <div class="schedule-card__actions">
             ${item.kind === 'schedule' ? `<button class="icon-btn toggle-btn" title="완료 표시">${item.completed ? '↩' : '✓'}</button>` : ''}
@@ -418,8 +584,16 @@ Views.goals = async function (workId) {
 
     const eventsByDate = {};
     summary.upcoming.forEach((item) => {
-      eventsByDate[item.date] = eventsByDate[item.date] || [];
-      eventsByDate[item.date].push(item);
+      // Multi-day schedules (item.endDate set) show on every day in the range, not
+      // just the start date — capped at 31 iterations so a bad/huge endDate can't
+      // spin the calendar render into fanning out thousands of entries.
+      const start = new Date(item.date);
+      const end = item.endDate ? new Date(item.endDate) : start;
+      for (let d = new Date(start), i = 0; d <= end && i < 31; d.setDate(d.getDate() + 1), i++) {
+        const key = Utils.dateStr(d);
+        eventsByDate[key] = eventsByDate[key] || [];
+        eventsByDate[key].push(item);
+      }
     });
 
     for (let i = 0; i < startOffset; i++) {

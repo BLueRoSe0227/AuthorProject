@@ -93,8 +93,15 @@ const App = {
       const work = await DB.get('works', contextWorkId);
       if (work) {
         this.state.lastWorkId = contextWorkId;
-        document.getElementById('currentWorkTitle').textContent = work.title;
-        document.getElementById('currentWorkColor').style.background = work.color;
+        document.getElementById('currentWorkTitle').textContent = work.penName ? `${work.title} · ${work.penName}` : work.title;
+        const colorEl = document.getElementById('currentWorkColor');
+        if (work.avatarDataUrl) {
+          colorEl.style.background = 'transparent';
+          colorEl.innerHTML = `<img class="nav-avatar" src="${work.avatarDataUrl}" alt="">`;
+        } else {
+          colorEl.innerHTML = '';
+          colorEl.style.background = work.color;
+        }
         nav.hidden = false;
       } else {
         this.state.lastWorkId = null;

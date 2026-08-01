@@ -4,6 +4,44 @@
 // nodes (not <canvas>) since cards need real text editing, which canvas can't do.
 const MEMO_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+// Re-inserted at the top of the SVG on every redraw (redrawConnections rebuilds the
+// whole SVG each time via innerHTML), so both markers are always available for
+// `marker-start`/`marker-end` regardless of which connections currently use them.
+const MEMO_ARROW_DEFS_HTML = `
+  <defs>
+    <marker id="memoArrowEnd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="memo-canvas-arrow"></path>
+    </marker>
+    <marker id="memoArrowStart" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M10,0 L0,5 L10,10 z" class="memo-canvas-arrow"></path>
+    </marker>
+  </defs>
+`;
+
+// A zigzag path (alternating quadratic-bezier control points either side of the
+// straight line) between two points — used for the '구불구불한' connection style.
+function buildWavyPath(x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const nx = -uy, ny = ux; // unit normal
+  const wavelength = 22;
+  const amp = 6;
+  const steps = Math.max(2, Math.round(len / wavelength));
+  let d = `M ${x1} ${y1}`;
+  for (let i = 1; i <= steps; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const midT = (i - 0.5) / steps;
+    const cx = x1 + ux * len * midT + nx * amp * side;
+    const cy = y1 + uy * len * midT + ny * amp * side;
+    const ex = x1 + ux * len * (i / steps);
+    const ey = y1 + uy * len * (i / steps);
+    d += ` Q ${cx} ${cy} ${ex} ${ey}`;
+  }
+  return d;
+}
+
 const MemoCanvas = {
   async mount(container, workId) {
     container.innerHTML = `
@@ -100,26 +138,87 @@ const MemoCanvas = {
 
     function redrawConnections(connections, memos) {
       const memoById = Object.fromEntries(memos.map((m) => [m.id, m]));
-      svg.innerHTML = '';
+      svg.innerHTML = MEMO_ARROW_DEFS_HTML;
       connections.forEach((c) => {
         const a = memoById[c.fromMemoId], b = memoById[c.toMemoId];
         if (!a || !b) return;
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', a.x + a.w / 2);
-        line.setAttribute('y1', a.y + a.h / 2);
-        line.setAttribute('x2', b.x + b.w / 2);
-        line.setAttribute('y2', b.y + b.h / 2);
-        line.setAttribute('class', 'memo-canvas-line');
-        line.style.pointerEvents = 'stroke';
-        line.addEventListener('mousedown', async (e) => {
+        const x1 = a.x + a.w / 2, y1 = a.y + a.h / 2, x2 = b.x + b.w / 2, y2 = b.y + b.h / 2;
+
+        let el;
+        if (c.style === 'wavy') {
+          el = document.createElementNS(SVG_NS, 'path');
+          el.setAttribute('d', buildWavyPath(x1, y1, x2, y2));
+        } else {
+          el = document.createElementNS(SVG_NS, 'line');
+          el.setAttribute('x1', x1);
+          el.setAttribute('y1', y1);
+          el.setAttribute('x2', x2);
+          el.setAttribute('y2', y2);
+        }
+        el.setAttribute('class', 'memo-canvas-line' + (c.style === 'dashed' ? ' memo-canvas-line--dashed' : ''));
+        if (c.arrowStart) el.setAttribute('marker-start', 'url(#memoArrowStart)');
+        if (c.arrowEnd) el.setAttribute('marker-end', 'url(#memoArrowEnd)');
+        el.style.pointerEvents = 'stroke';
+        el.addEventListener('click', (e) => {
           e.stopPropagation();
-          const ok = await UI.confirm('이 연결선을 삭제할까요?', { title: '연결선 삭제', confirmLabel: '삭제', danger: true });
-          if (!ok) return;
-          await Models.deleteMemoConnection(c.id);
+          openConnectionMenu(e, c);
+        });
+        svg.appendChild(el);
+      });
+    }
+
+    // Small popup (style/arrows/delete) anchored at the click point — replaces the
+    // old "click a line to instantly delete it" behavior now that lines carry more
+    // editable state than just existing.
+    function openConnectionMenu(e, conn) {
+      document.querySelectorAll('.memo-conn-menu').forEach((el) => el.remove());
+      const menu = document.createElement('div');
+      menu.className = 'memo-conn-menu';
+      menu.innerHTML = `
+        <div class="memo-conn-menu__row">
+          <button class="chip${conn.style === 'solid' || !conn.style ? ' chip--active' : ''}" data-style="solid">실선</button>
+          <button class="chip${conn.style === 'dashed' ? ' chip--active' : ''}" data-style="dashed">점선</button>
+          <button class="chip${conn.style === 'wavy' ? ' chip--active' : ''}" data-style="wavy">물결</button>
+        </div>
+        <div class="memo-conn-menu__row">
+          <button class="chip${conn.arrowStart ? ' chip--active' : ''}" data-arrow="arrowStart">◀ 시작 화살표</button>
+          <button class="chip${conn.arrowEnd ? ' chip--active' : ''}" data-arrow="arrowEnd">끝 화살표 ▶</button>
+        </div>
+        <button class="btn btn--ghost btn--sm btn--danger-text btn--block" id="memoConnDeleteBtn">삭제</button>
+      `;
+      document.body.appendChild(menu);
+      menu.style.left = `${Math.min(e.clientX, window.innerWidth - 200)}px`;
+      menu.style.top = `${Math.min(e.clientY, window.innerHeight - 120)}px`;
+
+      menu.querySelectorAll('[data-style]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await Models.updateMemoConnection(conn.id, { style: btn.dataset.style });
+          menu.remove();
           await refresh();
         });
-        svg.appendChild(line);
       });
+      menu.querySelectorAll('[data-arrow]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const key = btn.dataset.arrow;
+          await Models.updateMemoConnection(conn.id, { [key]: !conn[key] });
+          menu.remove();
+          await refresh();
+        });
+      });
+      menu.querySelector('#memoConnDeleteBtn').addEventListener('click', async () => {
+        menu.remove();
+        const ok = await UI.confirm('이 연결선을 삭제할까요?', { title: '연결선 삭제', confirmLabel: '삭제', danger: true });
+        if (!ok) return;
+        await Models.deleteMemoConnection(conn.id);
+        await refresh();
+      });
+
+      setTimeout(() => {
+        const closeHandler = (ev) => {
+          if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', closeHandler); }
+        };
+        document.addEventListener('mousedown', closeHandler);
+      }, 0);
     }
 
     let state = null;
@@ -148,10 +247,18 @@ const MemoCanvas = {
       el.style.width = `${group.w}px`;
       el.style.height = `${group.h}px`;
       el.style.setProperty('--group-color', group.color);
+      if (group.fillColor) el.style.setProperty('--group-fill-color', group.fillColor);
       el.innerHTML = `
         <div class="memo-group-frame__header">
           <input type="text" class="memo-group-frame__name" value="${Utils.escapeHtml(group.name)}">
           <button class="icon-btn memo-group-frame__delete" title="그룹 삭제">✕</button>
+        </div>
+        <div class="memo-group-frame__colors">
+          <span class="memo-group-frame__colors-label">테두리</span>
+          ${MEMO_COLORS.map((c) => `<button class="memo-color-dot" data-role="border" data-color="${c}" style="background:${c}" title="테두리 색"></button>`).join('')}
+          <span class="memo-group-frame__colors-label">채우기</span>
+          ${MEMO_COLORS.map((c) => `<button class="memo-color-dot" data-role="fill" data-color="${c}" style="background:${c}" title="채우기 색"></button>`).join('')}
+          <button type="button" class="memo-group-frame__colors-clear" data-role="fill-clear">자동</button>
         </div>
         <div class="memo-group-frame__resize"></div>
       `;
@@ -159,6 +266,30 @@ const MemoCanvas = {
 
       const header = el.querySelector('.memo-group-frame__header');
       const nameInput = el.querySelector('.memo-group-frame__name');
+
+      el.querySelectorAll('.memo-color-dot[data-role="border"]').forEach((dot) => {
+        dot.addEventListener('mousedown', (e) => e.stopPropagation());
+        dot.addEventListener('click', async () => {
+          group.color = dot.dataset.color;
+          el.style.setProperty('--group-color', group.color);
+          await Models.updateMemoGroup(group.id, { color: group.color });
+        });
+      });
+      el.querySelectorAll('.memo-color-dot[data-role="fill"]').forEach((dot) => {
+        dot.addEventListener('mousedown', (e) => e.stopPropagation());
+        dot.addEventListener('click', async () => {
+          group.fillColor = dot.dataset.color;
+          el.style.setProperty('--group-fill-color', group.fillColor);
+          await Models.updateMemoGroup(group.id, { fillColor: group.fillColor });
+        });
+      });
+      const fillClearBtn = el.querySelector('[data-role="fill-clear"]');
+      fillClearBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+      fillClearBtn.addEventListener('click', async () => {
+        group.fillColor = null;
+        el.style.removeProperty('--group-fill-color');
+        await Models.updateMemoGroup(group.id, { fillColor: null });
+      });
       nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
       nameInput.addEventListener('change', async () => {
         group.name = nameInput.value.trim() || group.name;
@@ -230,11 +361,13 @@ const MemoCanvas = {
       el.style.width = `${memo.w}px`;
       el.style.height = `${memo.h}px`;
       if (memo.color) el.style.setProperty('--memo-color', memo.color);
+      el.style.setProperty('--memo-opacity', memo.opacity || 0);
       el.innerHTML = `
         <div class="memo-canvas-card__header">
           <div class="memo-canvas-card__colors">
             ${MEMO_COLORS.map((c) => `<button class="memo-color-dot" data-color="${c}" style="background:${c}" title="색상"></button>`).join('')}
           </div>
+          <input type="range" class="memo-canvas-card__opacity" min="0" max="100" value="${Math.round((memo.opacity || 0) * 100)}" title="채우기 정도">
           <button class="icon-btn memo-canvas-card__link" title="다른 카드와 연결">🔗</button>
           <button class="icon-btn memo-canvas-card__delete" title="삭제">✕</button>
         </div>
@@ -251,6 +384,14 @@ const MemoCanvas = {
           await Models.updateMemo(memo.id, { color: memo.color });
         });
       });
+
+      const opacitySlider = el.querySelector('.memo-canvas-card__opacity');
+      opacitySlider.addEventListener('mousedown', (e) => e.stopPropagation());
+      opacitySlider.addEventListener('input', Utils.debounce(async () => {
+        memo.opacity = Number(opacitySlider.value) / 100;
+        el.style.setProperty('--memo-opacity', memo.opacity);
+        await Models.updateMemo(memo.id, { opacity: memo.opacity });
+      }, 300));
 
       const linkBtn = el.querySelector('.memo-canvas-card__link');
       linkBtn.addEventListener('mousedown', (e) => e.stopPropagation());

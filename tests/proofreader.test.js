@@ -75,3 +75,83 @@ describe('Proofreader.applyFix', () => {
     expect(el.textContent).toBe('안되는 일');
   });
 });
+
+describe('Proofreader.mergeIssues', () => {
+  it('drops later issues whose range overlaps an already-kept one', () => {
+    const a = [{ index: 0, length: 3 }, { index: 10, length: 2 }];
+    const b = [{ index: 1, length: 2 }, { index: 20, length: 1 }]; // overlaps a[0]
+    const merged = Proofreader.mergeIssues(a, b);
+    expect(merged.map((i) => i.index)).toEqual([0, 10, 20]);
+  });
+
+  it('keeps adjacent (non-overlapping, touching) issues', () => {
+    const merged = Proofreader.mergeIssues([{ index: 0, length: 3 }], [{ index: 3, length: 2 }]);
+    expect(merged.length).toBe(2);
+  });
+});
+
+describe('Proofreader.markIssues / unwrapMark / applyMark', () => {
+  it('wraps each issue range in a categorized span without altering the text', () => {
+    document.body.innerHTML = '<div id="editor" contenteditable="true">그렇게 됬다고 말했다.</div>';
+    const el = document.getElementById('editor');
+    const originalText = el.textContent;
+    const issues = Proofreader.check(originalText);
+    Proofreader.markIssues(el, issues);
+    expect(el.textContent).toBe(originalText);
+    const mark = el.querySelector('.proofread-mark');
+    expect(mark).toBeTruthy();
+    expect(mark.className).toContain('proofread-mark--spelling');
+    expect(mark.dataset.issueId).toBe(issues[0].id);
+  });
+
+  it('wraps a range that partially overlaps existing formatting via the extract+wrap fallback', () => {
+    document.body.innerHTML = '<div id="editor" contenteditable="true">그날 정말 안 <b>됬다</b>.</div>';
+    const el = document.getElementById('editor');
+    const issues = Proofreader.check(el.textContent);
+    expect(() => Proofreader.markIssues(el, issues)).not.toThrow();
+    expect(el.textContent).toBe('그날 정말 안 됬다.');
+    expect(el.querySelector('.proofread-mark')).toBeTruthy();
+    expect(el.querySelector('.proofread-mark b')).toBeTruthy(); // inner <b> formatting preserved
+  });
+
+  it('unwrapMark removes the wrapper but keeps the original text and bold formatting', () => {
+    document.body.innerHTML = '<div id="editor" contenteditable="true">그날 <b>됬다</b>.</div>';
+    const el = document.getElementById('editor');
+    const issues = Proofreader.check(el.textContent);
+    Proofreader.markIssues(el, issues);
+    const mark = el.querySelector('.proofread-mark');
+    Proofreader.unwrapMark(mark);
+    expect(el.querySelector('.proofread-mark')).toBeNull();
+    expect(el.textContent).toBe('그날 됬다.');
+    // The matched range ("됬") only partially overlapped the original <b>, so the
+    // extract+wrap fallback split it into two adjacent <b> elements rather than one
+    // — same as a browser's native behavior for a partial-selection wrap, and
+    // visually identical (no rendering gap between adjacent bold tags). What
+    // matters is that every character is still bold, not that it's a single node.
+    const boldText = [...el.querySelectorAll('b')].map((b) => b.textContent).join('');
+    expect(boldText).toBe('됬다');
+  });
+
+  it('applyMark replaces the marked text with the suggestion and unwraps', () => {
+    document.body.innerHTML = '<div id="editor" contenteditable="true">그렇게 됬다.</div>';
+    const el = document.getElementById('editor');
+    const issues = Proofreader.check(el.textContent);
+    Proofreader.markIssues(el, issues);
+    const mark = el.querySelector('.proofread-mark');
+    Proofreader.applyMark(mark, '됐');
+    expect(el.querySelector('.proofread-mark')).toBeNull();
+    expect(el.textContent).toBe('그렇게 됐다.');
+  });
+
+  it('unmarkAll strips every remaining mark back to plain text, leaving content unchanged', () => {
+    document.body.innerHTML = '<div id="editor" contenteditable="true">몇일이 지나고 됬다.</div>';
+    const el = document.getElementById('editor');
+    const originalText = el.textContent;
+    const issues = Proofreader.check(originalText);
+    Proofreader.markIssues(el, issues);
+    expect(el.querySelectorAll('.proofread-mark').length).toBeGreaterThan(0);
+    Proofreader.unmarkAll(el);
+    expect(el.querySelectorAll('.proofread-mark').length).toBe(0);
+    expect(el.textContent).toBe(originalText);
+  });
+});

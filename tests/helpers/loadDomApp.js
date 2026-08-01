@@ -28,6 +28,7 @@ const FILE_EXPORTS = {
   'js/manuscriptExport.js': ['ManuscriptExport'],
   'js/proofreaderRules.js': ['ProofreaderRules'],
   'js/proofreader.js': ['Proofreader'],
+  'js/theme.js': ['Theme', 'THEME_PALETTES', 'THEME_STYLE_LABELS', 'THEME_KEYS'],
 };
 
 export function loadDomScripts(relPaths) {

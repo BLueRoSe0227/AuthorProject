@@ -3,6 +3,32 @@
 // aren't cleaned up automatically the way element-scoped ones are.
 let manuscriptEscHandler = null;
 
+// Display-only char count respecting the 공백 포함/제외 preference — never used for
+// the persisted scene.wordCount (see Utils.countChars for why).
+function formatCharCount(html) {
+  const includeSpaces = Prefs.get().charCountMode === 'include';
+  return `${Utils.countChars(html, includeSpaces).toLocaleString()}자`;
+}
+
+// Which chapters the user has explicitly collapsed — chapter ids are UUIDs (unique
+// across works), so one flat set works fine without per-work namespacing. Default
+// (nothing in the set) means every chapter starts expanded.
+const COLLAPSED_CHAPTERS_KEY = 'sw-collapsed-chapters';
+function getCollapsedChapterIds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLLAPSED_CHAPTERS_KEY));
+    return new Set(Array.isArray(saved) ? saved : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+function setChapterCollapsed(chapterId, collapsed) {
+  const set = getCollapsedChapterIds();
+  if (collapsed) set.add(chapterId);
+  else set.delete(chapterId);
+  localStorage.setItem(COLLAPSED_CHAPTERS_KEY, JSON.stringify([...set]));
+}
+
 Views.manuscript = async function (workId, sceneId) {
   const content = document.getElementById('content');
   const bundle = await Models.getWorkBundle(workId);
@@ -26,6 +52,8 @@ Views.manuscript = async function (workId, sceneId) {
             <button class="pane-count-btn" data-n="4">4단</button>
           </div>
           <button class="btn btn--ghost btn--sm" id="focusModeBtn">🖥 집중모드</button>
+          <button class="btn btn--ghost btn--sm" id="printModeBtn">🖨 인쇄 모드</button>
+          <button class="btn btn--ghost btn--sm" id="exportBtn">📤 내보내기</button>
         </div>
         <div class="manuscript-panes" id="manuscriptPanes"></div>
       </div>
@@ -76,6 +104,16 @@ Views.manuscript = async function (workId, sceneId) {
   document.getElementById('focusModeBtn').addEventListener('click', enterFocusMode);
   document.getElementById('focusExitBtn').addEventListener('click', exitFocusMode);
 
+  // Re-fetch rather than reuse the `bundle` captured at view entry — chapters/scenes
+  // may have been added, renamed, or reordered since, and a stale export would
+  // silently miss those changes.
+  document.getElementById('printModeBtn').addEventListener('click', async () => {
+    const fresh = await Models.getWorkBundle(workId);
+    if (!fresh.chapters.length) { UI.toast('인쇄할 챕터가 없습니다'); return; }
+    ManuscriptExport.openPrintView(fresh.work, fresh.chapters, fresh.scenesByChapter);
+  });
+  document.getElementById('exportBtn').addEventListener('click', () => Views.exportManuscriptFlow(workId));
+
   if (manuscriptEscHandler) document.removeEventListener('keydown', manuscriptEscHandler);
   manuscriptEscHandler = (e) => {
     if (e.key === 'Escape' && document.body.classList.contains('focus-mode')) exitFocusMode();
@@ -92,6 +130,7 @@ Views.manuscript = async function (workId, sceneId) {
     listEl.innerHTML = '';
     let draggedChapterId = null;
     let draggedScene = null;
+    const collapsedChapterIds = getCollapsedChapterIds();
 
     bundle.chapters.forEach((ch) => {
       const scenes = bundle.scenesByChapter[ch.id] || [];
@@ -100,7 +139,8 @@ Views.manuscript = async function (workId, sceneId) {
       chapterEl.draggable = true;
       chapterEl.dataset.chapterId = ch.id;
 
-      const isOpen = forceOpenChapterId === ch.id || scenes.some((s) => s.id === sceneId) || (!forceOpenChapterId && !sceneId && bundle.chapters[0].id === ch.id);
+      const isOpen = forceOpenChapterId === ch.id || scenes.some((s) => s.id === sceneId) || !collapsedChapterIds.has(ch.id);
+      if (isOpen && collapsedChapterIds.has(ch.id)) setChapterCollapsed(ch.id, false); // forced open (new scene, selection) — keep the stored state honest
 
       const isWebnovel = bundle.work.format === 'webnovel';
       chapterEl.innerHTML = `
@@ -135,6 +175,7 @@ Views.manuscript = async function (workId, sceneId) {
         const nowOpen = sceneListEl.style.display !== 'none';
         sceneListEl.style.display = nowOpen ? 'none' : 'block';
         toggle.textContent = nowOpen ? '▸' : '▾';
+        setChapterCollapsed(ch.id, nowOpen);
       });
 
       titleEl.addEventListener('dblclick', (e) => {
@@ -157,6 +198,7 @@ Views.manuscript = async function (workId, sceneId) {
         const scene = await Models.createScene(ch.id, workId);
         sceneListEl.style.display = 'block';
         toggle.textContent = '▾';
+        setChapterCollapsed(ch.id, false);
         await refreshTree();
         loadSceneIntoActivePane(scene.id);
       });
@@ -176,7 +218,7 @@ Views.manuscript = async function (workId, sceneId) {
           <span class="drag-handle">⠿</span>
           <span class="status-dot status-dot--${sc.status}"></span>
           <span class="scene-title">${Utils.escapeHtml(sc.title)}</span>
-          <span class="muted scene-words">${(sc.wordCount || 0).toLocaleString()}자</span>
+          <span class="muted scene-words">${formatCharCount(sc.content)}</span>
           <button class="icon-btn more-btn" title="더보기">⋯</button>
         `;
         sceneEl.addEventListener('click', (e) => {
@@ -471,7 +513,8 @@ Views.manuscript = async function (workId, sceneId) {
         </div>
         <div class="rich-editor-mount"></div>
         <div class="scene-editor__footer">
-          <span class="muted word-count-label">${(scene.wordCount || 0).toLocaleString()}자</span>
+          <span class="muted word-count-label">${formatCharCount(scene.content)}</span>
+          <button class="btn btn--ghost btn--sm char-count-toggle" title="공백 포함/제외 전환">${Prefs.get().charCountMode === 'include' ? '공백 포함' : '공백 제외'}</button>
           <details class="scene-summary-toggle">
             <summary>요약 메모 (선택)</summary>
             <textarea class="textarea summary-input" rows="3" placeholder="이 장면의 요약이나 다음에 쓸 내용 메모">${Utils.escapeHtml(scene.summary || '')}</textarea>
@@ -485,18 +528,37 @@ Views.manuscript = async function (workId, sceneId) {
     const summary = body.querySelector('.summary-input');
     const indicator = body.querySelector('.save-indicator');
     const wordLabel = body.querySelector('.word-count-label');
+    const charCountToggle = body.querySelector('.char-count-toggle');
 
     let versionTimer = null;
 
     const debouncedSave = Utils.debounce(async (html) => {
       indicator.textContent = '저장 중...';
-      await Models.updateScene(scene.id, { content: html });
-      const wc = Utils.countWords(html);
-      wordLabel.textContent = `${wc.toLocaleString()}자`;
+      // Proofread review marks (see openProofreadReview) are transient UI state —
+      // strip them from what gets persisted regardless of what triggered this save,
+      // rather than relying on the review flow to always clean up first.
+      const cleanHtml = Proofreader.stripMarksFromHtml(html);
+      await Models.updateScene(scene.id, { content: cleanHtml });
+      wordLabel.textContent = formatCharCount(cleanHtml);
       indicator.textContent = '저장됨 · 방금';
       const treeTitleEl = document.querySelector(`.scene-row[data-scene-id="${scene.id}"] .scene-words`);
-      if (treeTitleEl) treeTitleEl.textContent = `${wc.toLocaleString()}자`;
+      if (treeTitleEl) treeTitleEl.textContent = formatCharCount(cleanHtml);
     }, Prefs.get().autosaveDelay);
+
+    charCountToggle.addEventListener('click', () => {
+      const mode = Prefs.toggleCharCountMode();
+      charCountToggle.textContent = mode === 'include' ? '공백 포함' : '공백 제외';
+      wordLabel.textContent = formatCharCount(richHandle.getHTML());
+      // Other panes/tree rows show a scene's count independently of this one — a
+      // preference change should be reflected everywhere at once, not just here.
+      document.querySelectorAll('.scene-row .scene-words').forEach((el) => {
+        const row = el.closest('.scene-row');
+        if (row) DB.get('scenes', row.dataset.sceneId).then((s) => { if (s) el.textContent = formatCharCount(s.content); });
+      });
+      document.querySelectorAll('.manuscript-pane .word-count-label').forEach((el) => {
+        if (el !== wordLabel) el.textContent = formatCharCount(el.closest('.scene-editor').querySelector('.rich-content')?.innerHTML || '');
+      });
+    });
 
     const richHandle = RichEditor.mount(body.querySelector('.rich-editor-mount'), {
       content: scene.content,
@@ -506,7 +568,7 @@ Views.manuscript = async function (workId, sceneId) {
         debouncedSave(html);
         clearTimeout(versionTimer);
         versionTimer = setTimeout(async () => {
-          await Models.saveSceneVersion(scene.id, html, '자동 저장');
+          await Models.saveSceneVersion(scene.id, Proofreader.stripMarksFromHtml(html), '자동 저장');
           await Models.pruneOldAutoVersions(scene.id);
         }, 45000);
       },
@@ -537,7 +599,7 @@ Views.manuscript = async function (workId, sceneId) {
     }, Prefs.get().autosaveDelay));
 
     body.querySelector('.history-btn').addEventListener('click', () => openVersionHistory(scene.id, () => mountPane(index, paneSceneId)));
-    body.querySelector('.proofread-btn').addEventListener('click', () => openProofreadPanel(richHandle.el));
+    body.querySelector('.proofread-btn').addEventListener('click', () => openProofreadReview(richHandle.el));
 
     body.addEventListener('mousedown', () => { activePaneIndex = index; });
     richHandle.focus();
@@ -584,144 +646,172 @@ Views.manuscript = async function (workId, sceneId) {
   }
 
   const PROOFREAD_CATEGORY_LABELS = { spelling: '맞춤법', spacing: '띄어쓰기', expression: '표현' };
+  const PROOFREAD_FILTERS = [
+    { key: 'all', label: '전체' },
+    { key: 'spelling', label: '맞춤법' },
+    { key: 'spacing', label: '띄어쓰기' },
+    { key: 'expression', label: '표현' },
+  ];
 
-  // Builds "…앞부분[문제 구간]뒷부분…" excerpt HTML with the matched span wrapped
-  // in <mark>, escaping each slice separately so user text can't inject markup.
-  function proofreadExcerptHtml(text, issue, pad = 12) {
-    const start = Math.max(0, issue.index - pad);
-    const end = Math.min(text.length, issue.index + issue.length + pad);
-    const before = Utils.escapeHtml(text.slice(start, issue.index));
-    const mid = Utils.escapeHtml(text.slice(issue.index, issue.index + issue.length));
-    const after = Utils.escapeHtml(text.slice(issue.index + issue.length, end));
-    return `${start > 0 ? '…' : ''}${before}<mark>${mid}</mark>${after}${end < text.length ? '…' : ''}`;
-  }
-
-  // Renders one issue as a row (excerpt/message/dictionary enrichment/actions).
-  // onApplied/onIgnored let the caller (renderProofreadSection) decide what
-  // "refresh" means for its section, since local vs AI issues are managed as
-  // separate arrays but share this same row markup.
-  function buildProofreadIssueRow(contentEl, issue, onApplied, onIgnored) {
-    const row = document.createElement('div');
-    row.className = 'proofread-issue';
-    row.innerHTML = `
-      <div class="proofread-issue__head">
-        <span class="proofread-issue__badge proofread-issue__badge--${issue.category}">${PROOFREAD_CATEGORY_LABELS[issue.category] || '기타'}</span>
-        <span class="proofread-issue__excerpt">${proofreadExcerptHtml(contentEl.textContent, issue)}</span>
-      </div>
-      <p class="proofread-issue__msg">${Utils.escapeHtml(issue.message)}</p>
-      <div class="proofread-issue__dict" hidden></div>
-      <div class="proofread-issue__actions">
-        ${issue.suggestion ? `<button class="btn btn--ghost btn--sm apply-btn">"${Utils.escapeHtml(issue.original)}" → "${Utils.escapeHtml(issue.suggestion)}" 적용</button>` : ''}
-        <button class="btn btn--ghost btn--sm ignore-btn">무시</button>
+  // Hover/click popover for one .proofread-mark span — shown via event delegation
+  // on contentEl (attachProofreadPopover, below) rather than per-span listeners, so
+  // it keeps working after markIssues() adds/removes spans during a review session.
+  function buildProofreadPopover(contentEl, span, issue, onResolved) {
+    const pop = document.createElement('div');
+    pop.className = 'proofread-popover';
+    pop.innerHTML = `
+      <span class="proofread-popover__badge proofread-issue__badge--${issue.category}">${PROOFREAD_CATEGORY_LABELS[issue.category] || '기타'}</span>
+      <p class="proofread-popover__msg">${Utils.escapeHtml(issue.message)}</p>
+      <div class="proofread-popover__dict" hidden></div>
+      <div class="proofread-popover__actions">
+        ${issue.suggestion ? `<button class="btn btn--ghost btn--sm proofread-popover__apply">"${Utils.escapeHtml(issue.suggestion)}"로 수정</button>` : ''}
+        <button class="btn btn--ghost btn--sm proofread-popover__keep">원문 유지</button>
       </div>
     `;
     if (issue.dictWord) {
-      const dictEl = row.querySelector('.proofread-issue__dict');
+      const dictEl = pop.querySelector('.proofread-popover__dict');
       Proofreader.lookupWord(issue.dictWord).then((results) => {
-        if (!results.length || !dictEl.isConnected) return;
+        if (!results.length || !pop.isConnected) return;
         dictEl.hidden = false;
         dictEl.innerHTML = `<span class="muted">표준국어대사전: <strong>${Utils.escapeHtml(results[0].word)}</strong> — ${Utils.escapeHtml(Utils.truncate(results[0].definition, 60))}</span>`;
       }).catch(() => {}); // dictionary proxy unavailable — rule explanation above still stands on its own
     }
-    const applyBtn = row.querySelector('.apply-btn');
+    const applyBtn = pop.querySelector('.proofread-popover__apply');
     if (applyBtn) {
       applyBtn.addEventListener('click', () => {
-        Proofreader.applyFix(contentEl, issue);
-        onApplied();
+        Proofreader.applyMark(span, issue.suggestion);
+        // Triggers RichEditor's own input->autosave pipeline; debouncedSave strips
+        // any still-remaining marks before persisting (see js/proofreader.js
+        // stripMarksFromHtml), so this is safe to fire even mid-review.
+        contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+        onResolved();
       });
     }
-    row.querySelector('.ignore-btn').addEventListener('click', onIgnored);
-    return row;
+    pop.querySelector('.proofread-popover__keep').addEventListener('click', () => {
+      Proofreader.unwrapMark(span);
+      contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+      onResolved();
+    });
+    return pop;
   }
 
-  // Renders a summary + row list for a mutable `issues` array into `container`.
-  // Ignoring a row just re-renders this section with it removed; applying a fix
-  // calls onChange(), which the caller uses to decide how much needs re-scanning
-  // (a text edit shifts every later offset, in this section and the other one).
-  function renderProofreadSection(container, contentEl, issues, onChange) {
-    container.innerHTML = '';
-    if (!issues.length) {
-      container.innerHTML = `<p class="muted proofread-section__empty">발견된 문제가 없습니다.</p>`;
-      return;
-    }
-    const summary = document.createElement('div');
-    summary.className = 'proofread-panel__summary';
-    const fixableCount = issues.filter((it) => it.suggestion).length;
-    summary.innerHTML = `<span class="muted">${issues.length}건 발견 (자동 교정 가능 ${fixableCount}건)</span>`;
-    if (fixableCount > 1) {
-      const applyAllBtn = document.createElement('button');
-      applyAllBtn.className = 'btn btn--ghost btn--sm';
-      applyAllBtn.textContent = '모두 적용';
-      applyAllBtn.addEventListener('click', () => {
-        // Descending order so applying one fix never shifts the index of another
-        // still-pending fix in this same batch.
-        issues.filter((it) => it.suggestion).sort((a, b) => b.index - a.index)
-          .forEach((it) => Proofreader.applyFix(contentEl, it));
-        onChange();
-      });
-      summary.appendChild(applyAllBtn);
-    }
-    container.appendChild(summary);
+  // Wires hover(+click)-to-open popovers for every current/future .proofread-mark
+  // span inside contentEl, via one pair of delegated listeners rather than binding
+  // per-span (spans get added/removed throughout a review session by markIssues/
+  // applyMark/unwrapMark, so per-span listeners would need constant re-attaching).
+  function attachProofreadPopover(contentEl, issuesById, onResolved) {
+    let popEl = null;
+    let hideTimer = null;
+    let openIssueId = null;
 
-    issues.forEach((issue) => {
-      const row = buildProofreadIssueRow(contentEl, issue, onChange, () => {
-        issues.splice(issues.indexOf(issue), 1);
-        renderProofreadSection(container, contentEl, issues, onChange);
+    function hide() {
+      if (popEl) { popEl.remove(); popEl = null; }
+      openIssueId = null;
+    }
+    function scheduleHide() {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hide, 200);
+    }
+    function show(span) {
+      const issueId = span.dataset.issueId;
+      const issue = issuesById.get(issueId);
+      if (!issue) return;
+      clearTimeout(hideTimer);
+      if (openIssueId === issueId) return;
+      hide();
+      openIssueId = issueId;
+      popEl = buildProofreadPopover(contentEl, span, issue, () => {
+        issuesById.delete(issueId);
+        hide();
+        onResolved();
       });
-      container.appendChild(row);
+      document.body.appendChild(popEl);
+      const rect = span.getBoundingClientRect();
+      popEl.style.left = `${Math.min(rect.left, window.innerWidth - popEl.offsetWidth - 12)}px`;
+      popEl.style.top = `${rect.bottom + 6}px`;
+      popEl.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+      popEl.addEventListener('mouseleave', scheduleHide);
+    }
+
+    contentEl.addEventListener('mouseover', (e) => {
+      const span = e.target.closest('.proofread-mark');
+      if (span) show(span);
+    });
+    contentEl.addEventListener('mouseout', (e) => {
+      if (e.target.closest('.proofread-mark')) scheduleHide();
+    });
+    contentEl.addEventListener('click', (e) => {
+      const span = e.target.closest('.proofread-mark');
+      if (span) show(span);
     });
   }
 
-  // contentEl is the live RichEditor DOM node (richHandle.el). Two independent
-  // checks run side by side: the always-available offline rule engine
-  // (Proofreader.check) and an AI-based sentence checker (Proofreader.checkOnline,
-  // proxied to Naver's unofficial spell-checker — see netlify/functions/spellcheck.js)
-  // that catches context-dependent errors no fixed rule can, at the cost of needing
-  // network access and being able to fail or change shape without notice. Applying
-  // any fix — from either section — shifts every later offset in both, so both are
-  // simply re-run from scratch rather than having their offsets patched by hand.
-  function openProofreadPanel(contentEl) {
-    const wrap = document.createElement('div');
-    wrap.className = 'proofread-panel';
+  // contentEl is the live RichEditor DOM node (richHandle.el). Marks issues directly
+  // in the manuscript text (hover/click a highlighted span for a fix-it popover)
+  // instead of listing them in a separate modal. Two sources feed the same review
+  // session: the always-available offline rule engine (Proofreader.check) and an
+  // AI-based sentence checker (Proofreader.checkOnline, proxied to Naver's
+  // unofficial spell-checker — see netlify/functions/spellcheck.js) that catches
+  // context-dependent errors no fixed rule can, at the cost of needing network
+  // access and being able to fail or change shape without notice — local rules
+  // still mark immediately so the user isn't blocked on it.
+  function openProofreadReview(contentEl) {
+    const sceneEditor = contentEl.closest('.scene-editor');
+    if (sceneEditor.querySelector('.proofread-bar')) { UI.toast('이미 검토 중입니다'); return; }
 
-    const localHeading = document.createElement('h4');
-    localHeading.className = 'proofread-panel__heading';
-    localHeading.textContent = '어문규범 규칙 검사';
-    const localSection = document.createElement('div');
+    const bar = document.createElement('div');
+    bar.className = 'proofread-bar';
+    bar.innerHTML = `
+      <span class="proofread-bar__status muted">검사 중...</span>
+      <div class="proofread-bar__filters" hidden>
+        ${PROOFREAD_FILTERS.map((f) => `<button class="chip${f.key === 'all' ? ' chip--active' : ''}" data-filter="${f.key}">${f.label}</button>`).join('')}
+      </div>
+      <button class="btn btn--ghost btn--sm proofread-bar__done">검토 종료</button>
+    `;
+    sceneEditor.querySelector('.scene-editor__header').after(bar);
 
-    const aiHeading = document.createElement('h4');
-    aiHeading.className = 'proofread-panel__heading';
-    aiHeading.textContent = 'AI 맞춤법 검사 (네이버, 비공식·베타)';
-    const aiSection = document.createElement('div');
+    const statusEl = bar.querySelector('.proofread-bar__status');
+    const filtersEl = bar.querySelector('.proofread-bar__filters');
 
-    wrap.append(localHeading, localSection, aiHeading, aiSection);
-    UI.openModal({ title: '맞춤법·어문규범 검사', bodyEl: wrap, width: '560px' });
-
-    function refreshLocal() {
-      const issues = Proofreader.check(contentEl.textContent);
-      renderProofreadSection(localSection, contentEl, issues, () => { refreshLocal(); refreshAi(); });
+    const issuesById = new Map();
+    function updateStatus(extra = '') {
+      filtersEl.hidden = issuesById.size === 0;
+      statusEl.textContent = issuesById.size ? `${issuesById.size}건 남음${extra}` : `발견된 문제가 없습니다${extra}`;
     }
 
-    async function refreshAi() {
-      aiSection.innerHTML = `<p class="muted proofread-section__empty">검사 중...</p>`;
-      try {
-        const { issues, truncated } = await Proofreader.checkOnline(contentEl.textContent);
-        if (!aiSection.isConnected) return; // modal was closed before the request resolved
-        renderProofreadSection(aiSection, contentEl, issues, () => { refreshLocal(); refreshAi(); });
-        if (truncated) {
-          const note = document.createElement('p');
-          note.className = 'muted proofread-section__note';
-          note.textContent = `장면이 길어 앞 ${Proofreader.ONLINE_CHECK_LIMIT.toLocaleString()}자만 검사했습니다.`;
-          aiSection.prepend(note);
-        }
-      } catch (err) {
-        if (!aiSection.isConnected) return;
-        aiSection.innerHTML = `<p class="muted proofread-section__empty">AI 맞춤법 검사를 사용할 수 없습니다: ${Utils.escapeHtml(err.message)}</p>`;
-      }
-    }
+    attachProofreadPopover(contentEl, issuesById, updateStatus);
 
-    refreshLocal();
-    refreshAi();
+    bar.querySelector('.proofread-bar__done').addEventListener('click', () => {
+      Proofreader.unmarkAll(contentEl);
+      contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+      bar.remove();
+    });
+    filtersEl.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      filtersEl.querySelectorAll('.chip').forEach((c) => c.classList.remove('chip--active'));
+      chip.classList.add('chip--active');
+      const filter = chip.dataset.filter;
+      contentEl.querySelectorAll('.proofread-mark').forEach((span) => {
+        span.classList.toggle('proofread-mark--hidden', filter !== 'all' && !span.classList.contains(`proofread-mark--${filter}`));
+      });
+    });
+
+    const localIssues = Proofreader.check(contentEl.textContent);
+    Proofreader.markIssues(contentEl, localIssues);
+    localIssues.forEach((it) => issuesById.set(it.id, it));
+    updateStatus();
+
+    Proofreader.checkOnline(contentEl.textContent).then(({ issues: aiIssuesRaw, truncated }) => {
+      if (!bar.isConnected) return; // review ended before this resolved
+      const merged = Proofreader.mergeIssues(localIssues, aiIssuesRaw);
+      const newOnes = merged.filter((it) => !issuesById.has(it.id));
+      Proofreader.markIssues(contentEl, newOnes);
+      newOnes.forEach((it) => issuesById.set(it.id, it));
+      updateStatus(truncated ? ` (앞 ${Proofreader.ONLINE_CHECK_LIMIT.toLocaleString()}자만 AI 검사됨)` : '');
+    }).catch(() => {
+      if (bar.isConnected) updateStatus(' (AI 검사 실패 — 규칙 검사 결과만 표시)');
+    });
   }
 
   if (!sceneId) {

@@ -519,4 +519,50 @@ const Graph = {
       },
     };
   },
+
+  // A one-shot, non-interactive relationship preview for small spaces (home screen
+  // work cards). Deliberately NOT built on mountRelationshipMap: that function runs
+  // a continuous requestAnimationFrame physics loop plus window-level mouse
+  // listeners with no cleanup call anywhere in the app today — mounting several of
+  // those at once per card would compound that into a real perf/memory problem.
+  // This instead lays nodes out on a static circle and draws exactly once.
+  drawStaticRelationshipPreview(canvas, characters, edges) {
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const width = (canvas.width = Math.max(1, Math.round(rect.width * devicePixelRatio)));
+    const height = (canvas.height = Math.max(1, Math.round(rect.height * devicePixelRatio)));
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+
+    const n = characters.length;
+    if (!n) return;
+    const cx = width / 2;
+    const cy = height / 2;
+    const r = Math.min(width, height) * 0.32;
+    const positions = {};
+    characters.forEach((c, i) => {
+      const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+      positions[c.id] = { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
+    });
+
+    ctx.clearRect(0, 0, width, height);
+    edges.forEach((e) => {
+      const a = positions[e.source];
+      const b = positions[e.target];
+      if (!a || !b) return;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = e.color || 'rgba(150,150,170,0.4)';
+      ctx.lineWidth = 1.3 * devicePixelRatio;
+      ctx.stroke();
+    });
+    characters.forEach((c) => {
+      const p = positions[c.id];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5 * devicePixelRatio, 0, Math.PI * 2);
+      ctx.fillStyle = Graph.colorFor('character');
+      ctx.fill();
+    });
+  },
 };

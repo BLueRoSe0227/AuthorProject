@@ -2,6 +2,21 @@ Views.editWorkFlow = async function (work) {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
     <div class="form-field">
+      <label>작가 프로필</label>
+      <div class="avatar-picker">
+        <div class="avatar-picker__preview" id="avatarPreview">${work.avatarDataUrl ? `<img src="${work.avatarDataUrl}" alt="">` : `<span class="work-dot" style="background:${work.color}"></span>`}</div>
+        <div class="avatar-picker__controls">
+          <label class="btn btn--ghost btn--sm" for="avatarInput">이미지 선택</label>
+          <input type="file" id="avatarInput" accept="image/*" hidden>
+          ${work.avatarDataUrl ? `<button type="button" class="btn btn--ghost btn--sm btn--danger-text" id="avatarRemoveBtn">제거</button>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="form-field">
+      <label>필명 (선택)</label>
+      <input type="text" class="input" id="editWorkPenName" value="${Utils.escapeHtml(work.penName || '')}" placeholder="이 작품에서 쓰는 필명">
+    </div>
+    <div class="form-field">
       <label>작품 제목</label>
       <input type="text" class="input" id="editWorkTitle" value="${Utils.escapeHtml(work.title)}">
     </div>
@@ -26,6 +41,29 @@ Views.editWorkFlow = async function (work) {
   Views.bindFormatRadioGroup(wrap, (format) => {
     wrap.querySelector('#editLengthField').hidden = format === 'webnovel';
   });
+
+  let avatarDataUrl = work.avatarDataUrl || null;
+  const avatarPreview = wrap.querySelector('#avatarPreview');
+  wrap.querySelector('#avatarInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { UI.toast('2MB 이하의 이미지만 사용할 수 있어요', 'error'); return; }
+    avatarDataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    avatarPreview.innerHTML = `<img src="${avatarDataUrl}" alt="">`;
+  });
+  const avatarRemoveBtn = wrap.querySelector('#avatarRemoveBtn');
+  if (avatarRemoveBtn) {
+    avatarRemoveBtn.addEventListener('click', () => {
+      avatarDataUrl = null;
+      avatarPreview.innerHTML = `<span class="work-dot" style="background:${work.color}"></span>`;
+      avatarRemoveBtn.remove();
+    });
+  }
   const { close } = UI.openModal({
     title: '작품 정보 수정',
     bodyEl: wrap,
@@ -53,7 +91,8 @@ Views.editWorkFlow = async function (work) {
           const length = wrap.querySelector('input[name="length"]:checked').value;
           const format = wrap.querySelector('input[name="format"]:checked').value;
           const genre = wrap.querySelector('#workGenreSelect').value || null;
-          await Models.updateWork(work.id, { title, description, length, format, genre });
+          const penName = wrap.querySelector('#editWorkPenName').value.trim();
+          await Models.updateWork(work.id, { title, description, length, format, genre, penName, avatarDataUrl });
           close();
           await App.refreshWorkSwitcher();
           Views.dashboard(work.id);
@@ -80,8 +119,8 @@ Views.dashboard = async function (workId) {
     <div class="view view--dashboard">
       <header class="view__header">
         <div>
-          <h1>${Utils.escapeHtml(work.title)}<span class="length-badge">${isWebnovel ? '📡 웹소설' : Models.LENGTH_LABELS[work.length] || '장편'}</span>${work.genre && Models.GENRE_TEMPLATES[work.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[work.genre].label}</span>` : ''}</h1>
-          <p class="muted">${Utils.escapeHtml(work.description || '소개가 없습니다')}</p>
+          <h1>${work.avatarDataUrl ? `<img class="work-card__avatar" src="${work.avatarDataUrl}" alt="">` : ''}${Utils.escapeHtml(work.title)}<span class="length-badge">${isWebnovel ? '📡 웹소설' : Models.LENGTH_LABELS[work.length] || '장편'}</span>${work.genre && Models.GENRE_TEMPLATES[work.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[work.genre].label}</span>` : ''}</h1>
+          <p class="muted">${work.penName ? `✒️ ${Utils.escapeHtml(work.penName)} · ` : ''}${Utils.escapeHtml(work.description || '소개가 없습니다')}</p>
         </div>
         <div class="home-header-actions">
           <button class="btn btn--ghost" id="exportWorkBtn">📤 내보내기</button>

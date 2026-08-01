@@ -52,6 +52,8 @@ const Models = {
       length, // 'long' (장편) | 'medium' (중편) | 'short' (단편) — 단행본(format:'book') 기준 분류
       format, // 'book' (단행본) | 'webnovel' (웹소설)
       genre, // GENRE_TEMPLATES 키 또는 null
+      penName: '',
+      avatarDataUrl: null,
       targetTotalChars: 0,
       targetDate: null,
       dailyGoalChars: 0,
@@ -396,6 +398,33 @@ const Models = {
     return c;
   },
 
+  // Assembles the character-relationship graph (nodes + colored/labeled edges +
+  // per-character group color) for a work. Shared by the full interactive
+  // relationship map (js/views/characters.js) and the static mini-preview on the
+  // home screen's work cards (js/views/home.js) — same shape, different renderer.
+  async getRelationshipGraphData(workId) {
+    const [characters, groups, tags] = await Promise.all([
+      DB.getAllByIndex('characters', 'workId', workId),
+      Models.getCharacterGroups(workId),
+      Models.getRelationshipTags(workId),
+    ]);
+    const tagById = Object.fromEntries(tags.map((t) => [t.id, t]));
+    const edges = [];
+    characters.forEach((c) => {
+      (c.relationships || []).forEach((r, idx) => {
+        const relTags = Models.relationshipTagIds(r).map((id) => tagById[id]).filter(Boolean);
+        const color = relTags[0] ? relTags[0].color : '#9297a8';
+        const label = r.label || relTags.map((t) => t.label).join(' · ');
+        edges.push({ source: c.id, target: r.targetId, label, color, ownerId: c.id, index: idx });
+      });
+    });
+    const groupColorByChar = {};
+    groups.forEach((g) => (g.memberIds || []).forEach((cid) => {
+      if (!groupColorByChar[cid]) groupColorByChar[cid] = g.color;
+    }));
+    return { characters, edges, groupColorByChar, tags, tagById };
+  },
+
   // ---- Setting notes ----
   async createSettingNote(workId, { title, category = '일반' } = {}) {
     const now = new Date().toISOString();
@@ -426,7 +455,7 @@ const Models = {
   },
 
   // ---- Memos ----
-  async createMemo(workId, { content = '', x = null, y = null, w = 220, h = 140, color = null, groupId = null } = {}) {
+  async createMemo(workId, { content = '', x = null, y = null, w = 220, h = 140, color = null, groupId = null, opacity = 0 } = {}) {
     const now = new Date().toISOString();
     const memo = {
       id: DB.uuid(),
@@ -434,6 +463,7 @@ const Models = {
       content,
       archived: false,
       x, y, w, h, color, groupId,
+      opacity, // 0 = no fill (border stripe only, today's look) .. 1 = fully filled with `color`
       createdAt: now,
       updatedAt: now,
     };
@@ -466,9 +496,12 @@ const Models = {
     return groups.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   },
 
-  async createMemoGroup(workId, { name = '새 그룹', color = '#8b7bff', x = 40, y = 40, w = 420, h = 300 } = {}) {
+  async createMemoGroup(workId, { name = '새 그룹', color = '#8b7bff', fillColor = null, x = 40, y = 40, w = 420, h = 300 } = {}) {
     const now = new Date().toISOString();
-    const group = { id: DB.uuid(), workId, name, color, x, y, w, h, createdAt: now, updatedAt: now };
+    // `color` is the border color (kept as-is for backward compat with existing
+    // groups); `fillColor` is optional — null means "derive a soft tint of the
+    // border color", same as the look before this field existed.
+    const group = { id: DB.uuid(), workId, name, color, fillColor, x, y, w, h, createdAt: now, updatedAt: now };
     await DB.add('memoGroups', group);
     return group;
   },
@@ -496,10 +529,18 @@ const Models = {
     return DB.getAllByIndex('memoConnections', 'workId', workId);
   },
 
-  async createMemoConnection(workId, { fromMemoId, toMemoId, label = '' } = {}) {
-    const conn = { id: DB.uuid(), workId, fromMemoId, toMemoId, label, createdAt: new Date().toISOString() };
+  async createMemoConnection(workId, { fromMemoId, toMemoId, label = '', style = 'solid', arrowStart = false, arrowEnd = false } = {}) {
+    const conn = { id: DB.uuid(), workId, fromMemoId, toMemoId, label, style, arrowStart, arrowEnd, createdAt: new Date().toISOString() };
     await DB.add('memoConnections', conn);
     return conn;
+  },
+
+  async updateMemoConnection(id, patch) {
+    const c = await DB.get('memoConnections', id);
+    if (!c) return null;
+    Object.assign(c, patch);
+    await DB.put('memoConnections', c);
+    return c;
   },
 
   async deleteMemoConnection(id) {
@@ -507,13 +548,17 @@ const Models = {
   },
 
   // ---- Schedules (deadlines / goal events) ----
-  async createSchedule(workId, { title, date, type = 'deadline', linkedChapterId = null, targetChars = 0 } = {}) {
+  async createSchedule(workId, { title, date, endDate = null, allDay = true, startTime = null, endTime = null, type = 'deadline', linkedChapterId = null, targetChars = 0 } = {}) {
     const now = new Date().toISOString();
     const schedule = {
       id: DB.uuid(),
       workId,
       title: title || '새 일정',
       date: date || Utils.todayStr(),
+      endDate, // optional — end of a multi-day range, inclusive
+      allDay,
+      startTime: allDay ? null : startTime, // 'HH:MM' or null
+      endTime: allDay ? null : endTime,
       type, // 'deadline' | 'event'
       linkedChapterId,
       targetChars,
@@ -540,6 +585,82 @@ const Models = {
   async getSchedulesForWork(workId) {
     const schedules = await DB.getAllByIndex('schedules', 'workId', workId);
     return schedules.sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  // ---- Missions (도전과제형 목표: 스트릭/기간 누적/수동 체크) ----
+  MISSION_KIND_LABELS: { streak: '연속 달성', total: '기간 누적', custom: '체크리스트' },
+
+  async getMissionsForWork(workId) {
+    const missions = await DB.getAllByIndex('missions', 'workId', workId);
+    return missions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  },
+
+  async createMission(workId, { title, kind = 'custom', targetValue = 0, targetDays = 0, startDate = null, endDate = null } = {}) {
+    const now = new Date().toISOString();
+    const mission = {
+      id: DB.uuid(),
+      workId,
+      title: title || '새 미션',
+      kind, // 'streak' (매일 targetValue자 이상, targetDays일 연속) | 'total' (기간 내 targetValue자 누적) | 'custom' (수동 체크)
+      targetValue,
+      targetDays, // only meaningful for 'streak' — the day-count goal (targetValue is the daily char threshold)
+      startDate: startDate || Utils.todayStr(),
+      endDate,
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await DB.add('missions', mission);
+    return mission;
+  },
+
+  async updateMission(id, patch) {
+    const m = await DB.get('missions', id);
+    if (!m) return null;
+    Object.assign(m, patch, { updatedAt: new Date().toISOString() });
+    await DB.put('missions', m);
+    return m;
+  },
+
+  async deleteMission(id) {
+    await DB.delete('missions', id);
+  },
+
+  // Returns { progress: 0~1|null, current, target, done } — 'custom' missions have
+  // no auto-trackable metric, so progress is null and `done` just mirrors the
+  // manually-set `completed` flag.
+  async getMissionProgress(mission) {
+    if (mission.kind === 'custom') {
+      return { progress: null, current: null, target: null, done: !!mission.completed };
+    }
+    const logs = await Models.getWritingLogForWork(mission.workId);
+    const byDate = Object.fromEntries(logs.map((l) => [l.date, l.chars]));
+    const end = mission.endDate || Utils.todayStr();
+
+    if (mission.kind === 'streak') {
+      let streak = 0;
+      const cursor = new Date(Math.min(new Date(end), new Date()));
+      for (;;) {
+        const key = Utils.dateStr(cursor);
+        if (key < mission.startDate) break;
+        if ((byDate[key] || 0) >= mission.targetValue) {
+          streak++;
+          cursor.setDate(cursor.getDate() - 1);
+        } else break;
+      }
+      return {
+        progress: mission.targetDays ? Math.min(1, streak / mission.targetDays) : null,
+        current: streak,
+        target: mission.targetDays || null,
+        done: mission.completed || (mission.targetDays > 0 && streak >= mission.targetDays),
+      };
+    }
+
+    // 'total': sum writingLog chars within [startDate, end]
+    const total = Object.entries(byDate)
+      .filter(([date]) => date >= mission.startDate && date <= end)
+      .reduce((sum, [, chars]) => sum + chars, 0);
+    return { progress: mission.targetValue ? Math.min(1, total / mission.targetValue) : null, current: total, target: mission.targetValue, done: mission.completed || total >= mission.targetValue };
   },
 
   // ---- Submissions (투고 내역: 원고를 출판사/플랫폼에 투고한 기록) ----
@@ -707,6 +828,10 @@ const Models = {
         kind: 'schedule',
         title: s.title,
         date: s.date,
+        endDate: s.endDate || null,
+        allDay: s.allDay !== false,
+        startTime: s.startTime || null,
+        endTime: s.endTime || null,
         type: s.type,
         completed: s.completed,
         targetChars: s.targetChars,
@@ -740,6 +865,41 @@ const Models = {
       schedules,
       upcoming,
     };
+  },
+
+  // ---- Research posts (자료 수집: 리치텍스트 게시글 + 첨부파일, 목록/보드 이중 뷰) ----
+  async getResearchPostsForWork(workId) {
+    const posts = await DB.getAllByIndex('researchPosts', 'workId', workId);
+    return posts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  },
+
+  async createResearchPost(workId, { title = '', content = '', attachments = [], boardX = null, boardY = null } = {}) {
+    const now = new Date().toISOString();
+    const post = {
+      id: DB.uuid(),
+      workId,
+      title: title || '제목 없는 자료',
+      content,
+      attachments,
+      boardX,
+      boardY,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await DB.add('researchPosts', post);
+    return post;
+  },
+
+  async updateResearchPost(id, patch) {
+    const p = await DB.get('researchPosts', id);
+    if (!p) return null;
+    Object.assign(p, patch, { updatedAt: new Date().toISOString() });
+    await DB.put('researchPosts', p);
+    return p;
+  },
+
+  async deleteResearchPost(id) {
+    await DB.delete('researchPosts', id);
   },
 
   // ---- One-time legacy data migrations ----

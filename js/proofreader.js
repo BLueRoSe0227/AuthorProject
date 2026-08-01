@@ -70,6 +70,93 @@ const Proofreader = {
     return true;
   },
 
+  // Combines already-sorted issue lists (e.g. from check() and checkOnline()) into
+  // one, greedily dropping later entries whose range overlaps an already-kept one.
+  // Needed because local rules and the AI checker can flag the same/overlapping
+  // text, and markIssues() can't safely wrap a range that partially overlaps an
+  // existing wrapper span.
+  mergeIssues(...lists) {
+    const all = [].concat(...lists).sort((a, b) => a.index - b.index);
+    const kept = [];
+    let lastEnd = -1;
+    all.forEach((issue) => {
+      if (issue.index >= lastEnd) {
+        kept.push(issue);
+        lastEnd = issue.index + issue.length;
+      }
+    });
+    return kept;
+  },
+
+  // Wraps each issue's [index, index+length) range in <span class="proofread-mark
+  // proofread-mark--{category}" data-issue-id> for the inline review UI (see
+  // js/views/manuscript.js). Unlike applyFix this never changes the text (pure
+  // wrapping), so issues can be marked in any order without invalidating each
+  // other's offsets — the caller just needs to have resolved overlaps first (see
+  // mergeIssues), since a range that only partially overlaps an existing wrapper
+  // span can't be wrapped safely.
+  markIssues(contentEl, issues) {
+    issues.forEach((issue) => {
+      const start = offsetToNodeOffset(contentEl, issue.index);
+      const end = offsetToNodeOffset(contentEl, issue.index + issue.length);
+      if (!start || !end) return;
+      const range = document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      const span = document.createElement('span');
+      span.className = `proofread-mark proofread-mark--${issue.category}`;
+      span.dataset.issueId = issue.id;
+      try {
+        range.surroundContents(span);
+      } catch (e) {
+        // Range crosses a partial element boundary (e.g. half-bold text) — same
+        // extract+wrap+reinsert fallback richEditor.js's applyInlineStyle uses for
+        // this exact situation.
+        const frag = range.extractContents();
+        span.appendChild(frag);
+        range.insertNode(span);
+      }
+    });
+  },
+
+  // "원문 유지" — removes the wrapper but keeps its contents (and their formatting)
+  // exactly as they were, unlike applyMark which discards them.
+  unwrapMark(span) {
+    const parent = span.parentNode;
+    if (!parent) return;
+    while (span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+    parent.normalize();
+  },
+
+  // "수정안 반영" — replaces the marked span's content with the suggestion, then
+  // unwraps it back into plain surrounding text.
+  applyMark(span, suggestion) {
+    span.textContent = suggestion;
+    Proofreader.unwrapMark(span);
+  },
+
+  // Called when review ends — strips every remaining mark back to plain text
+  // (content unchanged) so nothing review-only ever reaches scene.content on save.
+  unmarkAll(contentEl) {
+    contentEl.querySelectorAll('.proofread-mark').forEach((span) => Proofreader.unwrapMark(span));
+  },
+
+  // Belt-and-suspenders guard for the save path (see js/views/manuscript.js's
+  // debouncedSave): review marks are meant to be purely transient UI state, never
+  // persisted, but a save can be triggered mid-review by things unrelated to the
+  // review flow itself (the user typing elsewhere in the scene while marks are
+  // still showing). Rather than trying to guarantee marks are always gone from the
+  // live DOM by the time any such save fires, every save instead persists a
+  // stripped COPY — marks keep showing in the live editor for continued review.
+  stripMarksFromHtml(html) {
+    if (!html || !html.includes('proofread-mark')) return html; // fast path
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    Proofreader.unmarkAll(div);
+    return div.innerHTML;
+  },
+
   // Sentence-level check via Naver's (unofficial) spell-checker, proxied through
   // netlify/functions/spellcheck.js. Complements check() — it catches context-
   // dependent errors no fixed rule can (e.g. "저녁밥을 멀다", a real word used in
@@ -124,3 +211,20 @@ const Proofreader = {
     });
   },
 };
+
+// Converts a flat character offset (relative to contentEl.textContent — the same
+// coordinate space check()/checkOnline() results use) into a {node, offset} pair
+// usable with Range.setStart/setEnd.
+function offsetToNodeOffset(contentEl, charOffset) {
+  const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
+  let pos = 0;
+  let node;
+  let last = null;
+  while ((node = walker.nextNode())) {
+    const len = node.textContent.length;
+    if (charOffset <= pos + len) return { node, offset: charOffset - pos };
+    pos += len;
+    last = node;
+  }
+  return last ? { node: last, offset: last.textContent.length } : null;
+}

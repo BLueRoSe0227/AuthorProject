@@ -11,6 +11,7 @@ Views.openSettings = async function (workId) {
   const tabs = [
     { key: 'theme', label: '🎨 테마' },
     { key: 'font', label: '🔤 폰트 · 화면' },
+    { key: 'shortcuts', label: '⌨ 단축키' },
     { key: 'data', label: '🗂 데이터 관리' },
   ];
   if (workId) tabs.push({ key: 'tags', label: '🏷 관계 해시태그' });
@@ -28,6 +29,7 @@ Views.openSettings = async function (workId) {
     panelEl.innerHTML = '';
     if (key === 'theme') Theme.renderPicker(panelEl);
     else if (key === 'font') renderFontTab(panelEl);
+    else if (key === 'shortcuts') renderShortcutsTab(panelEl);
     else if (key === 'data') App.renderDataPanel(panelEl);
     else if (key === 'tags') await renderTagsTab(panelEl, workId);
   }
@@ -134,6 +136,48 @@ function renderFontTab(container) {
       btn.classList.add('chip--active');
     });
     reltimeRow.appendChild(btn);
+  });
+}
+
+const SHORTCUT_GROUPS = [
+  {
+    title: '전역',
+    items: [
+      { keys: 'Ctrl / ⌘ + K', desc: '통합 검색 열기' },
+      { keys: 'Esc', desc: '모달 닫기 · 집중모드 종료 · 메모보드 연결 취소 · 에디터 팝업 닫기' },
+    ],
+  },
+  {
+    title: '원고 에디터',
+    items: [
+      { keys: 'Ctrl / ⌘ + B', desc: '굵게 (브라우저 기본 제공 — contenteditable 표준 동작)' },
+      { keys: 'Ctrl / ⌘ + I', desc: '기울임 (브라우저 기본 제공)' },
+      { keys: 'Ctrl / ⌘ + U', desc: '밑줄 (브라우저 기본 제공)' },
+    ],
+  },
+  {
+    title: '메모 인박스',
+    items: [{ keys: 'Ctrl / ⌘ + Enter', desc: '작성 중인 메모 추가' }],
+  },
+];
+
+function renderShortcutsTab(container) {
+  container.innerHTML = '';
+  SHORTCUT_GROUPS.forEach((group) => {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+    section.innerHTML = `
+      <h4>${group.title}</h4>
+      <div class="shortcut-list">
+        ${group.items.map((it) => `
+          <div class="shortcut-row">
+            <span class="shortcut-keys">${Utils.escapeHtml(it.keys)}</span>
+            <span class="muted">${Utils.escapeHtml(it.desc)}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    container.appendChild(section);
   });
 }
 

@@ -26,10 +26,12 @@ Views.inbox = async function (workId) {
     await MemoCanvas.mount(document.getElementById('inboxBody'), workId);
     return;
   }
-  await renderListView(workId, qId);
+  await renderInboxListView(workId, qId);
 };
 
-async function renderListView(workId, qId) {
+// Named uniquely, not just renderListView — see the identical comment in
+// js/views/characters.js for why (classic <script> files share one global scope).
+async function renderInboxListView(workId, qId) {
   const body = document.getElementById('inboxBody');
   body.innerHTML = `
     <div class="inbox-tabs">

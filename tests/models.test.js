@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createAppContext } from './helpers/loadApp.js';
 
-let Models, DB;
+let Models, DB, Utils;
 
 beforeEach(() => {
-  ({ Models, DB } = createAppContext());
+  ({ Models, DB, Utils } = createAppContext());
 });
 
 describe('createWork', () => {
@@ -238,5 +238,84 @@ describe('memo canvas', () => {
 
     const updated = await DB.get('memos', memo.id);
     expect(updated.groupId).toBeNull();
+  });
+});
+
+describe('schedules', () => {
+  it('defaults to all-day with no end date, and accepts a timed range', async () => {
+    const work = await Models.createWork({ title: '일정 작품' });
+    const allDay = await Models.createSchedule(work.id, { title: '마감', date: '2026-01-01' });
+    expect(allDay.allDay).toBe(true);
+    expect(allDay.startTime).toBeNull();
+    expect(allDay.endDate).toBeNull();
+
+    const timed = await Models.createSchedule(work.id, {
+      title: '북토크', date: '2026-01-01', endDate: '2026-01-03', allDay: false, startTime: '14:00', endTime: '16:00',
+    });
+    expect(timed.endDate).toBe('2026-01-03');
+    expect(timed.startTime).toBe('14:00');
+    expect(timed.endTime).toBe('16:00');
+  });
+});
+
+describe('missions', () => {
+  it('custom missions never auto-track — done just mirrors the manual completed flag', async () => {
+    const work = await Models.createWork({ title: '미션 작품' });
+    const mission = await Models.createMission(work.id, { title: '챕터 완결', kind: 'custom' });
+    expect(await Models.getMissionProgress(mission)).toEqual({ progress: null, current: null, target: null, done: false });
+
+    await Models.updateMission(mission.id, { completed: true });
+    const updated = await DB.get('missions', mission.id);
+    expect((await Models.getMissionProgress(updated)).done).toBe(true);
+  });
+
+  it('streak missions count consecutive today-backward days meeting the daily target', async () => {
+    const work = await Models.createWork({ title: '스트릭 작품' });
+    for (let i = 0; i < 3; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: Utils.dateStr(d), chars: 600 });
+    }
+    const mission = await Models.createMission(work.id, { title: '3일 연속 500자', kind: 'streak', targetValue: 500, targetDays: 3, startDate: '2000-01-01' });
+    const result = await Models.getMissionProgress(mission);
+    expect(result.current).toBe(3);
+    expect(result.progress).toBe(1);
+    expect(result.done).toBe(true);
+  });
+
+  it('streak stops at the first day (counting backward from today) under target', async () => {
+    const work = await Models.createWork({ title: '스트릭 중단 작품' });
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    // Today meets target; yesterday has no entry (breaks the streak); two days ago
+    // meets target too but is unreachable once the streak has already broken.
+    await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: Utils.todayStr(), chars: 600 });
+    await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: Utils.dateStr(twoDaysAgo), chars: 600 });
+    const mission = await Models.createMission(work.id, { title: '스트릭', kind: 'streak', targetValue: 500, targetDays: 5, startDate: '2000-01-01' });
+    const result = await Models.getMissionProgress(mission);
+    expect(result.current).toBe(1);
+    expect(result.done).toBe(false);
+  });
+
+  it('streak with no targetDays set never reports a percentage, just the raw count', async () => {
+    const work = await Models.createWork({ title: '목표일수 없는 스트릭' });
+    await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: Utils.todayStr(), chars: 600 });
+    const mission = await Models.createMission(work.id, { title: '기록만', kind: 'streak', targetValue: 500, startDate: '2000-01-01' });
+    const result = await Models.getMissionProgress(mission);
+    expect(result.current).toBe(1);
+    expect(result.progress).toBeNull();
+    expect(result.target).toBeNull();
+  });
+
+  it('total missions sum writingLog chars within [startDate, endDate] only', async () => {
+    const work = await Models.createWork({ title: '누적 작품' });
+    await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: '2026-03-01', chars: 3000 });
+    await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: '2026-03-02', chars: 4000 });
+    await DB.add('writingLog', { id: DB.uuid(), workId: work.id, date: '2026-02-28', chars: 9999 }); // outside range
+    const mission = await Models.createMission(work.id, { title: '3월 첫주 만자', kind: 'total', targetValue: 10000, startDate: '2026-03-01', endDate: '2026-03-07' });
+    const result = await Models.getMissionProgress(mission);
+    expect(result.current).toBe(7000);
+    expect(result.progress).toBeCloseTo(0.7);
+    expect(result.done).toBe(false);
   });
 });

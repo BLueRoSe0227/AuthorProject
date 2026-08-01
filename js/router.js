@@ -7,6 +7,7 @@ const Router = {
     { pattern: /^#\/work\/([^\/\?]+)\/characters/, handler: (m) => Views.characters(m[1]) },
     { pattern: /^#\/work\/([^\/\?]+)\/settings/, handler: (m) => Views.settingNotes(m[1]) },
     { pattern: /^#\/work\/([^\/\?]+)\/inbox/, handler: (m) => Views.inbox(m[1]) },
+    { pattern: /^#\/work\/([^\/\?]+)\/research/, handler: (m) => Views.research(m[1]) },
     { pattern: /^#\/work\/([^\/\?]+)\/goals/, handler: (m) => Views.goals(m[1]) },
     { pattern: /^#\/search/, handler: () => Views.searchView() },
   ],

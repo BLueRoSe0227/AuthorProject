@@ -33,6 +33,7 @@ const PREF_KEYS = {
   textSize: 'sw-pref-textsize',
   autosave: 'sw-pref-autosave',
   reltime: 'sw-pref-reltime',
+  charCountMode: 'sw-pref-charcountmode', // 'exclude' | 'include' — display only, see Utils.countChars
 };
 
 const Prefs = {
@@ -42,6 +43,7 @@ const Prefs = {
     const textSize = localStorage.getItem(PREF_KEYS.textSize) || 'normal';
     const autosave = localStorage.getItem(PREF_KEYS.autosave) || 'normal';
     const reltimeRaw = localStorage.getItem(PREF_KEYS.reltime);
+    const charCountMode = localStorage.getItem(PREF_KEYS.charCountMode) === 'include' ? 'include' : 'exclude';
     return {
       font,
       scale,
@@ -49,6 +51,7 @@ const Prefs = {
       autosave,
       autosaveDelay: PREF_AUTOSAVE[autosave] || PREF_AUTOSAVE.normal,
       relativeTime: reltimeRaw === null ? true : reltimeRaw === 'true',
+      charCountMode,
     };
   },
 
@@ -82,6 +85,12 @@ const Prefs = {
 
   setRelativeTime(enabled) {
     localStorage.setItem(PREF_KEYS.reltime, String(!!enabled));
+  },
+
+  toggleCharCountMode() {
+    const next = Prefs.get().charCountMode === 'include' ? 'exclude' : 'include';
+    localStorage.setItem(PREF_KEYS.charCountMode, next);
+    return next;
   },
 };
 

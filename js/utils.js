@@ -5,6 +5,16 @@ const Utils = {
     return plain.replace(/\s/g, '').length;
   },
 
+  // Display-only alternative to countWords — countWords' result is persisted as
+  // scene.wordCount and feeds goal/streak math elsewhere (Models.getGoalSummary
+  // etc.), so that meaning (space-excluded) can't change; this is purely for the
+  // "공백 포함/제외" toggle in the editor UI.
+  countChars(text, includeSpaces) {
+    if (!text) return 0;
+    const plain = Utils.stripHtml(text);
+    return includeSpaces ? plain.length : plain.replace(/\s/g, '').length;
+  },
+
   stripHtml(html) {
     if (!html) return '';
     return String(html).replace(/<[^>]*>/g, '');

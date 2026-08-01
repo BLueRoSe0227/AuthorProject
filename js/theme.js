@@ -50,6 +50,71 @@ const Theme = {
     return (lighter + 0.05) / (darker + 0.05);
   },
 
+  hexToHsl(hex) {
+    const h = hex.trim().replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16) / 255;
+    const g = parseInt(h.substring(2, 4), 16) / 255;
+    const b = parseInt(h.substring(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let hh = 0, s = 0;
+    const l = (max + min) / 2;
+    const d = max - min;
+    if (d !== 0) {
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: hh = ((g - b) / d + (g < b ? 6 : 0)); break;
+        case g: hh = (b - r) / d + 2; break;
+        case b: hh = (r - g) / d + 4; break;
+      }
+      hh /= 6;
+    }
+    return { h: hh, s, l };
+  },
+
+  hslToHex(h, s, l) {
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1 / 3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1 / 3);
+    }
+    const toHex = (c) => Math.round(Math.min(1, Math.max(0, c)) * 255).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  },
+
+  // Derives a text-safe variant of `hex` for use against `bgHex`, nudging HSL
+  // lightness away from the background's own lightness (preserving hue/saturation,
+  // so it still reads as "that palette color") until it clears minRatio, or gives
+  // up after a bounded number of steps and falls back to pure black/white. Exists
+  // because pastel palettes (see THEME_PALETTES.pastel) are chosen for swatches/
+  // accents, not body text — several are near-white and unreadable as-is on a
+  // light card background.
+  adjustForContrast(hex, bgHex, minRatio = 4.5) {
+    if (Theme.contrastRatio(hex, bgHex) >= minRatio) return hex;
+    const bgIsLight = Theme.relativeLuminance(bgHex) > 0.5;
+    const hsl = Theme.hexToHsl(hex);
+    let l = hsl.l;
+    for (let i = 0; i < 24; i++) {
+      l += bgIsLight ? -0.04 : 0.04;
+      if (l < 0.03 || l > 0.97) break;
+      const candidate = Theme.hslToHex(hsl.h, hsl.s, l);
+      if (Theme.contrastRatio(candidate, bgHex) >= minRatio) return candidate;
+    }
+    return bgIsLight ? '#1a1a1a' : '#fafafa';
+  },
+
   get() {
     return {
       mode: localStorage.getItem(THEME_KEYS.mode) || 'system',
@@ -80,7 +145,16 @@ const Theme = {
     const accent = palette.colors[palette.accentIndex];
     root.style.setProperty('--accent', accent);
     root.style.setProperty('--accent-soft', Theme.hexToRgba(accent, 0.16));
-    palette.colors.forEach((c, i) => root.style.setProperty(`--palette-${i + 1}`, c));
+
+    // data-theme is already set above (synchronously reflected before this next
+    // getComputedStyle call), so --bg-elevated below resolves to the CSS for the
+    // mode we just switched to, not the previous one.
+    const bg = getComputedStyle(root).getPropertyValue('--bg-elevated').trim()
+      || (Theme.resolvedMode(mode) === 'light' ? '#ffffff' : '#161922');
+    palette.colors.forEach((c, i) => {
+      root.style.setProperty(`--palette-${i + 1}`, c);
+      root.style.setProperty(`--palette-${i + 1}-text`, Theme.adjustForContrast(c, bg));
+    });
   },
 
   setMode(mode) {

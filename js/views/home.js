@@ -168,7 +168,12 @@ Views.home = async function () {
 
       ${
         works.length
-          ? `<div class="work-grid" id="workGrid"></div>`
+          ? `<div class="home-sort-chips" id="homeSortChips">
+              <button class="chip" data-sort="created">추가순</button>
+              <button class="chip" data-sort="updated">업데이트순</button>
+              <button class="chip" data-sort="alpha">가나다순</button>
+            </div>
+            <div class="work-grid" id="workGrid"></div>`
           : `<div class="empty-state">
               <div class="empty-state__icon">📚</div>
               <h3>아직 작품이 없어요</h3>
@@ -197,52 +202,103 @@ Views.home = async function () {
 
   if (works.length) {
     const grid = document.getElementById('workGrid');
-    for (const w of works) {
-      const [stats, goal, recent] = await Promise.all([
+
+    // Fetched once up front (not per sort-change) so switching the sort chip is an
+    // instant client-side re-render instead of re-querying IndexedDB for every card.
+    const cardDataByWork = {};
+    await Promise.all(works.map(async (w) => {
+      const [stats, goal, recent, relData] = await Promise.all([
         Models.getWorkStats(w.id),
         Models.getGoalSummary(w.id),
         Models.getRecentActivity(w.id, 1),
+        Models.getRelationshipGraphData(w.id),
       ]);
-      const todoCount = goal.upcoming.filter((i) => !i.completed).length;
-      const connectionCount = stats.characterCount + stats.settingCount + stats.memoCount;
-      const progressPct = goal.totalProgress !== null ? Math.round(goal.totalProgress * 100) : null;
-      const recentItem = recent[0];
-      const recentPalClass = recentItem ? `text-pal-${Graph.ENTITY_PAL[recentItem.type]}`.replace('text-pal-accent', 'text-accent') : '';
+      cardDataByWork[w.id] = { stats, goal, recent, relData };
+    }));
 
-      const card = document.createElement('div');
-      card.className = 'work-card work-card--rich';
-      card.style.setProperty('--work-color', w.color);
-      card.innerHTML = `
-        <div class="work-card__color" style="background:${w.color}"></div>
-        <div class="work-card__body">
-          <h3>${Utils.escapeHtml(w.title)}<span class="length-badge">${w.format === 'webnovel' ? '📡 웹소설' : Models.LENGTH_LABELS[w.length] || '장편'}</span>${w.genre && Models.GENRE_TEMPLATES[w.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[w.genre].label}</span>` : ''}</h3>
-          <p class="muted">${Utils.escapeHtml(Utils.truncate(w.description, 70) || '소개가 없습니다')}</p>
-          <div class="work-card__progress">
+    const SORT_KEY = 'sw-home-sort';
+    function getSortMode() {
+      const saved = localStorage.getItem(SORT_KEY);
+      return ['created', 'updated', 'alpha'].includes(saved) ? saved : 'updated';
+    }
+    function sortedWorks() {
+      const mode = getSortMode();
+      const list = [...works];
+      if (mode === 'created') list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      else if (mode === 'alpha') list.sort((a, b) => a.title.localeCompare(b.title, 'ko'));
+      else list.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      return list;
+    }
+
+    function renderGrid() {
+      grid.innerHTML = '';
+      sortedWorks().forEach((w) => {
+        const { stats, goal, recent, relData } = cardDataByWork[w.id];
+        const todoCount = goal.upcoming.filter((i) => !i.completed).length;
+        const connectionCount = stats.characterCount + stats.settingCount + stats.memoCount;
+        const progressPct = goal.totalProgress !== null ? Math.round(goal.totalProgress * 100) : null;
+        const recentItem = recent[0];
+        const recentPalClass = recentItem ? `text-pal-${Graph.ENTITY_PAL[recentItem.type]}`.replace('text-pal-accent', 'text-accent') : '';
+        const nextUpcoming = goal.upcoming.find((i) => !i.completed && i.date >= Utils.todayStr());
+        const showMiniGraph = relData.characters.length >= 2 && relData.edges.length >= 1;
+
+        const card = document.createElement('div');
+        card.className = 'work-card work-card--rich';
+        card.style.setProperty('--work-color', w.color);
+        card.innerHTML = `
+          <div class="work-card__color" style="background:${w.color}"></div>
+          <div class="work-card__body">
+            <h3>${w.avatarDataUrl ? `<img class="work-card__avatar" src="${w.avatarDataUrl}" alt="">` : ''}${Utils.escapeHtml(w.title)}<span class="length-badge">${w.format === 'webnovel' ? '📡 웹소설' : Models.LENGTH_LABELS[w.length] || '장편'}</span>${w.genre && Models.GENRE_TEMPLATES[w.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[w.genre].label}</span>` : ''}</h3>
+            ${w.penName ? `<p class="muted work-card__pen-name">✒️ ${Utils.escapeHtml(w.penName)}</p>` : ''}
+            <p class="muted">${Utils.escapeHtml(Utils.truncate(w.description, 70) || '소개가 없습니다')}</p>
+            <div class="work-card__progress">
+              ${
+                progressPct !== null
+                  ? `<div class="progress-bar"><div class="progress-bar__fill" style="width:${progressPct}%;background:${w.color}"></div></div><span class="work-card__progress-num">${progressPct}%</span>`
+                  : `<span class="muted work-card__no-goal">목표 미설정</span>`
+              }
+            </div>
+            <div class="work-card__chips">
+              <span class="work-card__chip text-pal-2">📂 ${stats.chapterCount}</span>
+              <span class="work-card__chip text-pal-3">📝 ${stats.sceneCount}</span>
+              <span class="work-card__chip text-pal-4">🧑 ${stats.characterCount}</span>
+              <span class="work-card__chip text-pal-5">🗺️ ${stats.settingCount}</span>
+              <span class="work-card__chip text-accent">📌 ${stats.memoCount}</span>
+              <span class="work-card__chip text-pal-1">✅ ${todoCount}</span>
+              <span class="work-card__chip muted">🕸️ ${connectionCount}개 연결</span>
+            </div>
+            ${showMiniGraph ? `<div class="work-card__mini-graph"><canvas></canvas></div>` : ''}
             ${
-              progressPct !== null
-                ? `<div class="progress-bar"><div class="progress-bar__fill" style="width:${progressPct}%;background:${w.color}"></div></div><span class="work-card__progress-num">${progressPct}%</span>`
-                : `<span class="muted work-card__no-goal">목표 미설정</span>`
+              nextUpcoming
+                ? `<div class="work-card__upcoming">📅 <span class="work-card__upcoming-title">${Utils.escapeHtml(nextUpcoming.title)}</span><span class="muted">${Utils.formatDday(nextUpcoming.date)}</span></div>`
+                : ''
+            }
+            ${
+              recentItem
+                ? `<div class="work-card__recent"><span class="${recentPalClass}">${UI.icon(recentItem.type)}</span><span class="work-card__recent-title">${Utils.escapeHtml(recentItem.title)}</span><span class="muted">${Utils.formatDate(recentItem.updatedAt)}</span></div>`
+                : ''
             }
           </div>
-          <div class="work-card__chips">
-            <span class="work-card__chip text-pal-2">📂 ${stats.chapterCount}</span>
-            <span class="work-card__chip text-pal-3">📝 ${stats.sceneCount}</span>
-            <span class="work-card__chip text-pal-4">🧑 ${stats.characterCount}</span>
-            <span class="work-card__chip text-pal-5">🗺️ ${stats.settingCount}</span>
-            <span class="work-card__chip text-accent">📌 ${stats.memoCount}</span>
-            <span class="work-card__chip text-pal-1">✅ ${todoCount}</span>
-            <span class="work-card__chip muted">🕸️ ${connectionCount}개 연결</span>
-          </div>
-          ${
-            recentItem
-              ? `<div class="work-card__recent"><span class="${recentPalClass}">${UI.icon(recentItem.type)}</span><span class="work-card__recent-title">${Utils.escapeHtml(recentItem.title)}</span><span class="muted">${Utils.formatDate(recentItem.updatedAt)}</span></div>`
-              : ''
-          }
-        </div>
-      `;
-      card.addEventListener('click', () => Router.go(`#/work/${w.id}/dashboard`));
-      grid.appendChild(card);
+        `;
+        card.addEventListener('click', () => Router.go(`#/work/${w.id}/dashboard`));
+        grid.appendChild(card);
+        if (showMiniGraph) {
+          Graph.drawStaticRelationshipPreview(card.querySelector('.work-card__mini-graph canvas'), relData.characters, relData.edges);
+        }
+      });
     }
+
+    const sortChipsEl = document.getElementById('homeSortChips');
+    sortChipsEl.querySelectorAll('.chip').forEach((chip) => {
+      chip.classList.toggle('chip--active', chip.dataset.sort === getSortMode());
+      chip.addEventListener('click', () => {
+        localStorage.setItem(SORT_KEY, chip.dataset.sort);
+        sortChipsEl.querySelectorAll('.chip').forEach((c) => c.classList.toggle('chip--active', c === chip));
+        renderGrid();
+      });
+    });
+
+    renderGrid();
   }
 
   const allMemos = await DB.getAll('memos');

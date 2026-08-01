@@ -1,7 +1,7 @@
 // IndexedDB data layer
 const DB_NAME = 'AuthorProjectDB';
-const DB_VERSION = 5;
-const STORE_NAMES = ['works', 'chapters', 'scenes', 'sceneVersions', 'characters', 'settingNotes', 'memos', 'schedules', 'writingLog', 'relationshipTags', 'characterGroups', 'memoGroups', 'memoConnections', 'submissions'];
+const DB_VERSION = 6;
+const STORE_NAMES = ['works', 'chapters', 'scenes', 'sceneVersions', 'characters', 'settingNotes', 'memos', 'schedules', 'writingLog', 'relationshipTags', 'characterGroups', 'memoGroups', 'memoConnections', 'submissions', 'missions', 'researchPosts'];
 
 let dbInstance = null;
 
@@ -83,6 +83,16 @@ function openDB() {
       if (!db.objectStoreNames.contains('submissions')) {
         const submissions = db.createObjectStore('submissions', { keyPath: 'id' });
         submissions.createIndex('workId', 'workId');
+      }
+
+      if (!db.objectStoreNames.contains('missions')) {
+        const missions = db.createObjectStore('missions', { keyPath: 'id' });
+        missions.createIndex('workId', 'workId');
+      }
+
+      if (!db.objectStoreNames.contains('researchPosts')) {
+        const researchPosts = db.createObjectStore('researchPosts', { keyPath: 'id' });
+        researchPosts.createIndex('workId', 'workId');
       }
     };
     req.onsuccess = (e) => {

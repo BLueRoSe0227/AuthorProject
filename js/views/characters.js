@@ -4,6 +4,7 @@ Views.characters = async function (workId) {
   const content = document.getElementById('content');
   const qId = Router.query().get('id');
   const tab = Router.query().get('tab') || 'list';
+  const groupParam = Router.query().get('group') || null;
 
   content.innerHTML = `
     <div class="view view--characters">
@@ -21,7 +22,7 @@ Views.characters = async function (workId) {
   if (tab === 'map') {
     await renderRelationshipMap(workId);
   } else {
-    await renderListView(workId, qId);
+    await renderCharacterListView(workId, qId, groupParam);
   }
 };
 
@@ -171,7 +172,12 @@ function openAddRelationshipModal(workId, fromChar, characters, tags, onDone) {
   });
 }
 
-async function renderListView(workId, qId) {
+// Named uniquely (not just renderListView) because this project loads every view
+// file as a classic <script> sharing one global scope — a same-named top-level
+// function in another file (e.g. inbox.js, research.js) would silently overwrite
+// this one, and whichever loaded last would win for every caller (see IMPROVEMENTS.md
+// DEV-03; this is exactly the bug that broke the character list screen).
+async function renderCharacterListView(workId, qId, initialGroupFilter) {
   const body = document.getElementById('charBody');
   body.innerHTML = `
     <div class="view--split view--split-inner">
@@ -187,7 +193,16 @@ async function renderListView(workId, qId) {
     </div>
   `;
 
-  let groupFilter = null;
+  // Kept in the URL (not just this closure) so it survives the full Views.characters
+  // re-run that Router.go triggers on every character click (see the item click
+  // handler in refresh() below) — otherwise the filter silently reset on every click.
+  let groupFilter = initialGroupFilter || null;
+
+  function syncGroupFilterUrl() {
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    if (groupFilter) q.set('group', groupFilter); else q.delete('group');
+    history.replaceState(null, '', `#/work/${workId}/characters${q.toString() ? '?' + q.toString() : ''}`);
+  }
 
   async function renderGroupBar() {
     const [groups, allChars] = await Promise.all([
@@ -203,6 +218,7 @@ async function renderListView(workId, qId) {
       chip.innerHTML = `<i></i><span>${Utils.escapeHtml(g.name)}</span><button class="group-chip__edit" title="편집">✎</button>`;
       chip.querySelector('span').addEventListener('click', async () => {
         groupFilter = groupFilter === g.id ? null : g.id;
+        syncGroupFilterUrl();
         await renderGroupBar();
         await refresh(currentSelectId);
       });
@@ -251,7 +267,11 @@ async function renderListView(workId, qId) {
       el.className = 'side-list__item' + (c.id === selectId ? ' side-list__item--active' : '');
       const dots = (groupsByChar[c.id] || []).map((g) => `<i class="group-mini-dot" style="background:${g.color}" title="${Utils.escapeHtml(g.name)}"></i>`).join('');
       el.innerHTML = `<span class="side-list__item-main"><strong>${Utils.escapeHtml(c.name)}</strong><span class="muted">${Utils.escapeHtml(c.role || '')}</span></span><span class="group-mini-dots">${dots}</span>`;
-      el.addEventListener('click', () => { Router.go(`#/work/${workId}/characters?id=${c.id}`); });
+      el.addEventListener('click', () => {
+        const q = new URLSearchParams({ id: c.id });
+        if (groupFilter) q.set('group', groupFilter);
+        Router.go(`#/work/${workId}/characters?${q.toString()}`);
+      });
       itemsEl.appendChild(el);
     });
     return chars;
@@ -421,23 +441,7 @@ async function renderRelationshipMap(workId) {
   });
 
   async function load() {
-    const [characters, groups] = await Promise.all([
-      DB.getAllByIndex('characters', 'workId', workId),
-      Models.getCharacterGroups(workId),
-    ]);
-    const edges = [];
-    characters.forEach((c) => {
-      (c.relationships || []).forEach((r, idx) => {
-        const relTags = Models.relationshipTagIds(r).map((id) => tagById[id]).filter(Boolean);
-        const color = relTags[0] ? relTags[0].color : '#9297a8';
-        const label = r.label || relTags.map((t) => t.label).join(' · ');
-        edges.push({ source: c.id, target: r.targetId, label, color, ownerId: c.id, index: idx });
-      });
-    });
-    const groupColorByChar = {};
-    groups.forEach((g) => (g.memberIds || []).forEach((cid) => {
-      if (!groupColorByChar[cid]) groupColorByChar[cid] = g.color;
-    }));
+    const { characters, edges, groupColorByChar } = await Models.getRelationshipGraphData(workId);
     return { characters, edges, groupColorByChar };
   }
 
