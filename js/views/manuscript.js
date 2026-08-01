@@ -596,81 +596,132 @@ Views.manuscript = async function (workId, sceneId) {
     return `${start > 0 ? '…' : ''}${before}<mark>${mid}</mark>${after}${end < text.length ? '…' : ''}`;
   }
 
-  // contentEl is the live RichEditor DOM node (richHandle.el) — issues are recomputed
-  // from its current textContent after every apply, since a replacement shifts every
-  // later offset and re-scanning is far simpler than patching offsets by hand.
+  // Renders one issue as a row (excerpt/message/dictionary enrichment/actions).
+  // onApplied/onIgnored let the caller (renderProofreadSection) decide what
+  // "refresh" means for its section, since local vs AI issues are managed as
+  // separate arrays but share this same row markup.
+  function buildProofreadIssueRow(contentEl, issue, onApplied, onIgnored) {
+    const row = document.createElement('div');
+    row.className = 'proofread-issue';
+    row.innerHTML = `
+      <div class="proofread-issue__head">
+        <span class="proofread-issue__badge proofread-issue__badge--${issue.category}">${PROOFREAD_CATEGORY_LABELS[issue.category] || '기타'}</span>
+        <span class="proofread-issue__excerpt">${proofreadExcerptHtml(contentEl.textContent, issue)}</span>
+      </div>
+      <p class="proofread-issue__msg">${Utils.escapeHtml(issue.message)}</p>
+      <div class="proofread-issue__dict" hidden></div>
+      <div class="proofread-issue__actions">
+        ${issue.suggestion ? `<button class="btn btn--ghost btn--sm apply-btn">"${Utils.escapeHtml(issue.original)}" → "${Utils.escapeHtml(issue.suggestion)}" 적용</button>` : ''}
+        <button class="btn btn--ghost btn--sm ignore-btn">무시</button>
+      </div>
+    `;
+    if (issue.dictWord) {
+      const dictEl = row.querySelector('.proofread-issue__dict');
+      Proofreader.lookupWord(issue.dictWord).then((results) => {
+        if (!results.length || !dictEl.isConnected) return;
+        dictEl.hidden = false;
+        dictEl.innerHTML = `<span class="muted">표준국어대사전: <strong>${Utils.escapeHtml(results[0].word)}</strong> — ${Utils.escapeHtml(Utils.truncate(results[0].definition, 60))}</span>`;
+      }).catch(() => {}); // dictionary proxy unavailable — rule explanation above still stands on its own
+    }
+    const applyBtn = row.querySelector('.apply-btn');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', () => {
+        Proofreader.applyFix(contentEl, issue);
+        onApplied();
+      });
+    }
+    row.querySelector('.ignore-btn').addEventListener('click', onIgnored);
+    return row;
+  }
+
+  // Renders a summary + row list for a mutable `issues` array into `container`.
+  // Ignoring a row just re-renders this section with it removed; applying a fix
+  // calls onChange(), which the caller uses to decide how much needs re-scanning
+  // (a text edit shifts every later offset, in this section and the other one).
+  function renderProofreadSection(container, contentEl, issues, onChange) {
+    container.innerHTML = '';
+    if (!issues.length) {
+      container.innerHTML = `<p class="muted proofread-section__empty">발견된 문제가 없습니다.</p>`;
+      return;
+    }
+    const summary = document.createElement('div');
+    summary.className = 'proofread-panel__summary';
+    const fixableCount = issues.filter((it) => it.suggestion).length;
+    summary.innerHTML = `<span class="muted">${issues.length}건 발견 (자동 교정 가능 ${fixableCount}건)</span>`;
+    if (fixableCount > 1) {
+      const applyAllBtn = document.createElement('button');
+      applyAllBtn.className = 'btn btn--ghost btn--sm';
+      applyAllBtn.textContent = '모두 적용';
+      applyAllBtn.addEventListener('click', () => {
+        // Descending order so applying one fix never shifts the index of another
+        // still-pending fix in this same batch.
+        issues.filter((it) => it.suggestion).sort((a, b) => b.index - a.index)
+          .forEach((it) => Proofreader.applyFix(contentEl, it));
+        onChange();
+      });
+      summary.appendChild(applyAllBtn);
+    }
+    container.appendChild(summary);
+
+    issues.forEach((issue) => {
+      const row = buildProofreadIssueRow(contentEl, issue, onChange, () => {
+        issues.splice(issues.indexOf(issue), 1);
+        renderProofreadSection(container, contentEl, issues, onChange);
+      });
+      container.appendChild(row);
+    });
+  }
+
+  // contentEl is the live RichEditor DOM node (richHandle.el). Two independent
+  // checks run side by side: the always-available offline rule engine
+  // (Proofreader.check) and an AI-based sentence checker (Proofreader.checkOnline,
+  // proxied to Naver's unofficial spell-checker — see netlify/functions/spellcheck.js)
+  // that catches context-dependent errors no fixed rule can, at the cost of needing
+  // network access and being able to fail or change shape without notice. Applying
+  // any fix — from either section — shifts every later offset in both, so both are
+  // simply re-run from scratch rather than having their offsets patched by hand.
   function openProofreadPanel(contentEl) {
     const wrap = document.createElement('div');
     wrap.className = 'proofread-panel';
-    let issues = Proofreader.check(contentEl.textContent);
-    render();
 
-    function render() {
-      wrap.innerHTML = '';
-      if (!issues.length) {
-        wrap.innerHTML = `<div class="empty-state empty-state--small"><div class="empty-state__icon">✅</div><p class="muted">발견된 문제가 없습니다.</p></div>`;
-        return;
-      }
-      const summary = document.createElement('div');
-      summary.className = 'proofread-panel__summary';
-      const fixableCount = issues.filter((it) => it.suggestion).length;
-      summary.innerHTML = `<span class="muted">${issues.length}건 발견 (자동 교정 가능 ${fixableCount}건)</span>`;
-      if (fixableCount > 1) {
-        const applyAllBtn = document.createElement('button');
-        applyAllBtn.className = 'btn btn--ghost btn--sm';
-        applyAllBtn.textContent = '모두 적용';
-        applyAllBtn.addEventListener('click', () => {
-          // Descending order so applying one fix never shifts the index of another
-          // still-pending fix — lets the whole batch run without a re-scan in between.
-          issues.filter((it) => it.suggestion).sort((a, b) => b.index - a.index)
-            .forEach((it) => Proofreader.applyFix(contentEl, it));
-          issues = Proofreader.check(contentEl.textContent);
-          render();
-        });
-        summary.appendChild(applyAllBtn);
-      }
-      wrap.appendChild(summary);
+    const localHeading = document.createElement('h4');
+    localHeading.className = 'proofread-panel__heading';
+    localHeading.textContent = '어문규범 규칙 검사';
+    const localSection = document.createElement('div');
 
-      issues.forEach((issue) => {
-        const row = document.createElement('div');
-        row.className = 'proofread-issue';
-        row.innerHTML = `
-          <div class="proofread-issue__head">
-            <span class="proofread-issue__badge proofread-issue__badge--${issue.category}">${PROOFREAD_CATEGORY_LABELS[issue.category] || '기타'}</span>
-            <span class="proofread-issue__excerpt">${proofreadExcerptHtml(contentEl.textContent, issue)}</span>
-          </div>
-          <p class="proofread-issue__msg">${Utils.escapeHtml(issue.message)}</p>
-          <div class="proofread-issue__dict" hidden></div>
-          <div class="proofread-issue__actions">
-            ${issue.suggestion ? `<button class="btn btn--ghost btn--sm apply-btn">"${Utils.escapeHtml(issue.original)}" → "${Utils.escapeHtml(issue.suggestion)}" 적용</button>` : ''}
-            <button class="btn btn--ghost btn--sm ignore-btn">무시</button>
-          </div>
-        `;
-        if (issue.dictWord) {
-          const dictEl = row.querySelector('.proofread-issue__dict');
-          Proofreader.lookupWord(issue.dictWord).then((results) => {
-            if (!results.length || !dictEl.isConnected) return;
-            dictEl.hidden = false;
-            dictEl.innerHTML = `<span class="muted">표준국어대사전: <strong>${Utils.escapeHtml(results[0].word)}</strong> — ${Utils.escapeHtml(Utils.truncate(results[0].definition, 60))}</span>`;
-          }).catch(() => {}); // dictionary proxy unavailable — rule explanation above still stands on its own
-        }
-        const applyBtn = row.querySelector('.apply-btn');
-        if (applyBtn) {
-          applyBtn.addEventListener('click', () => {
-            Proofreader.applyFix(contentEl, issue);
-            issues = Proofreader.check(contentEl.textContent);
-            render();
-          });
-        }
-        row.querySelector('.ignore-btn').addEventListener('click', () => {
-          issues = issues.filter((it) => it.id !== issue.id);
-          render();
-        });
-        wrap.appendChild(row);
-      });
+    const aiHeading = document.createElement('h4');
+    aiHeading.className = 'proofread-panel__heading';
+    aiHeading.textContent = 'AI 맞춤법 검사 (네이버, 비공식·베타)';
+    const aiSection = document.createElement('div');
+
+    wrap.append(localHeading, localSection, aiHeading, aiSection);
+    UI.openModal({ title: '맞춤법·어문규범 검사', bodyEl: wrap, width: '560px' });
+
+    function refreshLocal() {
+      const issues = Proofreader.check(contentEl.textContent);
+      renderProofreadSection(localSection, contentEl, issues, () => { refreshLocal(); refreshAi(); });
     }
 
-    UI.openModal({ title: '맞춤법·어문규범 검사', bodyEl: wrap, width: '560px' });
+    async function refreshAi() {
+      aiSection.innerHTML = `<p class="muted proofread-section__empty">검사 중...</p>`;
+      try {
+        const { issues, truncated } = await Proofreader.checkOnline(contentEl.textContent);
+        if (!aiSection.isConnected) return; // modal was closed before the request resolved
+        renderProofreadSection(aiSection, contentEl, issues, () => { refreshLocal(); refreshAi(); });
+        if (truncated) {
+          const note = document.createElement('p');
+          note.className = 'muted proofread-section__note';
+          note.textContent = `장면이 길어 앞 ${Proofreader.ONLINE_CHECK_LIMIT.toLocaleString()}자만 검사했습니다.`;
+          aiSection.prepend(note);
+        }
+      } catch (err) {
+        if (!aiSection.isConnected) return;
+        aiSection.innerHTML = `<p class="muted proofread-section__empty">AI 맞춤법 검사를 사용할 수 없습니다: ${Utils.escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    refreshLocal();
+    refreshAi();
   }
 
   if (!sceneId) {

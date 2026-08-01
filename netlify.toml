@@ -6,3 +6,8 @@
   from = "/api/dict"
   to = "/.netlify/functions/dictionary"
   status = 200
+
+[[redirects]]
+  from = "/api/spellcheck"
+  to = "/.netlify/functions/spellcheck"
+  status = 200

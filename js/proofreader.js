@@ -4,6 +4,11 @@
 // (see netlify/functions/dictionary.js), so the "맞춤법 검사" flow keeps working even
 // when the dictionary API/proxy is unavailable.
 const Proofreader = {
+  // Kept in sync with MAX_INPUT_LENGTH in netlify/functions/spellcheck.js (that
+  // function truncates too, but checking here lets the UI show a warning instead
+  // of silently scanning less text than the user expects).
+  ONLINE_CHECK_LIMIT: 2000,
+
   check(text) {
     if (!text) return [];
     const issues = [];
@@ -63,6 +68,32 @@ const Proofreader = {
 
     contentEl.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
+  },
+
+  // Sentence-level check via Naver's (unofficial) spell-checker, proxied through
+  // netlify/functions/spellcheck.js. Complements check() — it catches context-
+  // dependent errors no fixed rule can (e.g. "저녁밥을 멀다", a real word used in
+  // the wrong place) — but it's a third-party service that can fail or change
+  // shape without notice, so callers must handle rejection independently of the
+  // always-available local check().
+  async checkOnline(text) {
+    const truncated = (text || '').length > Proofreader.ONLINE_CHECK_LIMIT;
+    const body = (text || '').slice(0, Proofreader.ONLINE_CHECK_LIMIT);
+    const res = await fetch('/api/spellcheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: body }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `맞춤법 검사 실패 (${res.status})`);
+    const issues = (data.issues || []).map((issue) => ({
+      ...issue,
+      id: `naver-${issue.index}-${issue.original}`,
+      ruleId: 'naver',
+      dictWord: issue.category === 'spelling' && issue.suggestion && !issue.suggestion.includes(' ') ? issue.suggestion : null,
+    }));
+    issues.sort((a, b) => a.index - b.index);
+    return { issues, truncated };
   },
 
   // method: 'exact' | 'include' | 'start' (표준국어대사전 검색 방식)
