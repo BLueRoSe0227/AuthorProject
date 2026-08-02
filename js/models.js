@@ -548,7 +548,7 @@ const Models = {
   },
 
   // ---- Schedules (deadlines / goal events) ----
-  async createSchedule(workId, { title, date, endDate = null, allDay = true, startTime = null, endTime = null, type = 'deadline', linkedChapterId = null, targetChars = 0 } = {}) {
+  async createSchedule(workId, { title, date, endDate = null, allDay = true, startTime = null, endTime = null, type = 'deadline', linkedChapterId = null, note = '' } = {}) {
     const now = new Date().toISOString();
     const schedule = {
       id: DB.uuid(),
@@ -561,7 +561,7 @@ const Models = {
       endTime: allDay ? null : endTime,
       type, // 'deadline' | 'event'
       linkedChapterId,
-      targetChars,
+      note,
       completed: false,
       createdAt: now,
       updatedAt: now,
@@ -834,7 +834,7 @@ const Models = {
         endTime: s.endTime || null,
         type: s.type,
         completed: s.completed,
-        targetChars: s.targetChars,
+        note: s.note || '',
       })),
       ...chapterInfo
         .filter((c) => c.dueDate)

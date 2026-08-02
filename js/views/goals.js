@@ -458,8 +458,8 @@ Views.goals = async function (workId) {
         </div>
       </div>
       <div class="form-field">
-        <label>목표 글자수 (선택)</label>
-        <input type="number" min="0" class="input" id="schChars" value="${existing?.targetChars || ''}">
+        <label>메모 (선택)</label>
+        <textarea class="textarea" id="schNote" rows="3" placeholder="이 일정에 대해 기억해둘 내용을 적어보세요">${Utils.escapeHtml(existing?.note || '')}</textarea>
       </div>
     `;
     wrap.querySelector('#schAllDay').addEventListener('change', (e) => {
@@ -478,7 +478,7 @@ Views.goals = async function (workId) {
             allDay: isAllDay,
             startTime: isAllDay ? null : wrap.querySelector('#schStartTime').value || null,
             endTime: isAllDay ? null : wrap.querySelector('#schEndTime').value || null,
-            targetChars: parseInt(wrap.querySelector('#schChars').value, 10) || 0,
+            note: wrap.querySelector('#schNote').value.trim(),
           };
           if (existing) await Models.updateSchedule(existing.id, data);
           else await Models.createSchedule(workId, data);
@@ -518,7 +518,8 @@ Views.goals = async function (workId) {
           <span class="schedule-card__dday ${kindPalClass[item.kind] || 'text-accent'}">${Utils.formatDday(item.date)}</span>
           <div class="schedule-card__body">
             <div class="schedule-card__title">${Utils.escapeHtml(item.title)}</div>
-            <div class="schedule-card__meta">${item.date}${item.endDate ? ' ~ ' + item.endDate : ''}${item.allDay === false && item.startTime ? ' · ' + item.startTime + (item.endTime ? '~' + item.endTime : '') : ''}${item.targetChars ? ' · 목표 ' + item.targetChars.toLocaleString() + '자' : ''}</div>
+            <div class="schedule-card__meta">${item.date}${item.endDate ? ' ~ ' + item.endDate : ''}${item.allDay === false && item.startTime ? ' · ' + item.startTime + (item.endTime ? '~' + item.endTime : '') : ''}</div>
+            ${item.note ? `<div class="schedule-card__note muted">${Utils.escapeHtml(Utils.truncate(item.note, 60))}</div>` : ''}
           </div>
           <div class="schedule-card__actions">
             ${item.kind === 'schedule' ? `<button class="icon-btn toggle-btn" title="완료 표시">${item.completed ? '↩' : '✓'}</button>` : ''}
@@ -611,6 +612,7 @@ Views.goals = async function (workId) {
         const ev = document.createElement('div');
         ev.className = 'calendar__event' + (eventKindClass[item.kind] ? ' ' + eventKindClass[item.kind] : '') + (item.completed ? ' calendar__event--done' : '');
         ev.textContent = item.title;
+        ev.title = item.note ? `${item.title}\n${item.note}` : item.title;
         ev.addEventListener('click', () => {
           if (item.kind === 'schedule') {
             const raw = summary.schedules.find((s) => s.id === item.id);

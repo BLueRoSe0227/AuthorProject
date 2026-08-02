@@ -202,10 +202,11 @@ Views.home = async function () {
         <div class="home-section-head">
           <div>
             <h2>📎 통합 자료 수집</h2>
-            <p class="muted">특정 작품에 속하지 않는 공용 취재 자료·참고 링크를 모아두세요.</p>
+            <p class="muted">공용 자료와 작품별 자료를 한곳에서 모아보고 추가하세요.</p>
           </div>
           <button class="btn btn--ghost btn--sm" id="homeAddResearchBtn">+ 자료 추가</button>
         </div>
+        <div class="home-research__tabs" id="homeResearchTabs"></div>
         <div id="homeResearchList" class="memo-list"></div>
       </section>
 
@@ -227,14 +228,35 @@ Views.home = async function () {
   document.getElementById('homeTimerBtn').addEventListener('click', (e) => Timer.openPopover(e.currentTarget));
   document.getElementById('homeSettingsBtn').addEventListener('click', () => Views.openSettings(null));
 
-  // 통합 자료 수집 — research posts not tied to any single work (Models.SHARED_RESEARCH_ID),
-  // shown regardless of whether any work exists yet, mirroring the 전체 메모 section below.
+  // 통합 자료 수집 — a 공용(Models.SHARED_RESEARCH_ID) tab plus one tab per work, so
+  // browsing/adding research doesn't require opening each work's own 자료 수집 page.
+  // Shown regardless of whether any work exists yet, mirroring 전체 메모 below.
+  let activeResearchTab = Models.SHARED_RESEARCH_ID;
+
+  function renderResearchTabs() {
+    const tabsEl = document.getElementById('homeResearchTabs');
+    const tabs = [{ id: Models.SHARED_RESEARCH_ID, label: '📎 공용', color: null }, ...works.map((w) => ({ id: w.id, label: w.title, color: w.color }))];
+    tabsEl.innerHTML = '';
+    tabs.forEach((t) => {
+      const btn = document.createElement('button');
+      btn.className = 'chip' + (t.id === activeResearchTab ? ' chip--active' : '');
+      if (t.color) btn.style.setProperty('--chip-c', t.color);
+      btn.textContent = t.label;
+      btn.addEventListener('click', () => {
+        activeResearchTab = t.id;
+        renderResearchTabs();
+        renderHomeResearch();
+      });
+      tabsEl.appendChild(btn);
+    });
+  }
+
   async function renderHomeResearch() {
     const listEl = document.getElementById('homeResearchList');
-    const posts = await Models.getResearchPostsForWork(Models.SHARED_RESEARCH_ID);
+    const posts = await Models.getResearchPostsForWork(activeResearchTab);
     listEl.innerHTML = '';
     if (!posts.length) {
-      listEl.innerHTML = `<p class="muted">아직 등록된 공용 자료가 없습니다. 특정 작품에 속하지 않는 자료를 여기에 모아보세요.</p>`;
+      listEl.innerHTML = `<p class="muted">${activeResearchTab === Models.SHARED_RESEARCH_ID ? '아직 등록된 공용 자료가 없습니다.' : '아직 이 작품의 자료가 없습니다.'}</p>`;
       return;
     }
     posts.forEach((p) => {
@@ -244,7 +266,7 @@ Views.home = async function () {
         <p><strong>${Utils.escapeHtml(p.title)}</strong></p>
         <p>${Utils.escapeHtml(Utils.truncate(Utils.stripHtml(p.content), 100)) || '<span class="muted">(내용 없음)</span>'}</p>
         <div class="memo-card__meta">
-          <span>공용 자료</span>
+          <span>${p.attachments && p.attachments.length ? `📎 ${p.attachments.length}개` : (activeResearchTab === Models.SHARED_RESEARCH_ID ? '공용 자료' : '작품 자료')}</span>
           <span>${Utils.formatDate(p.updatedAt)}</span>
         </div>
       `;
@@ -254,6 +276,8 @@ Views.home = async function () {
   }
 
   function openHomeResearchModal(existing) {
+    const targetWorkId = existing ? existing.workId : activeResearchTab;
+    const attachments = existing ? [...existing.attachments] : [];
     const wrap = document.createElement('div');
     wrap.innerHTML = `
       <div class="form-field">
@@ -264,7 +288,59 @@ Views.home = async function () {
         <label>내용</label>
         <textarea class="textarea" id="hResContent" rows="6" placeholder="취재 내용, 참고 링크, 메모를 자유롭게 적어보세요...">${Utils.escapeHtml(existing?.content || '')}</textarea>
       </div>
+      <div class="form-field">
+        <div class="research-attachments__header">
+          <span class="muted">첨부파일</span>
+          <label class="btn btn--ghost btn--sm" for="hResAttachInput">+ 파일 첨부</label>
+          <input type="file" id="hResAttachInput" hidden multiple>
+        </div>
+        <div class="research-attachments__list" id="hResAttachList"></div>
+      </div>
     `;
+
+    function renderAttachList() {
+      const listEl = wrap.querySelector('#hResAttachList');
+      listEl.innerHTML = '';
+      if (!attachments.length) {
+        listEl.innerHTML = `<p class="muted">첨부된 파일이 없습니다.</p>`;
+        return;
+      }
+      attachments.forEach((a, idx) => {
+        const item = document.createElement('div');
+        item.className = 'research-attachment';
+        item.innerHTML = `
+          <a href="${a.dataUrl}" download="${Utils.escapeHtml(a.name)}">${Utils.escapeHtml(a.name)}</a>
+          <span class="muted">${Math.max(1, Math.round(a.size / 1024))}KB</span>
+          <button type="button" class="icon-btn remove-attach-btn" title="삭제">✕</button>
+        `;
+        item.querySelector('.remove-attach-btn').addEventListener('click', () => {
+          attachments.splice(idx, 1);
+          renderAttachList();
+        });
+        listEl.appendChild(item);
+      });
+    }
+    renderAttachList();
+
+    wrap.querySelector('#hResAttachInput').addEventListener('change', async (e) => {
+      const files = [...e.target.files];
+      for (const file of files) {
+        if (file.size > 5 * 1024 * 1024) {
+          UI.toast(`"${file.name}"은 5MB를 초과해 첨부할 수 없습니다`, 'error');
+          continue;
+        }
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        attachments.push({ name: file.name, type: file.type, dataUrl, size: file.size });
+      }
+      renderAttachList();
+      e.target.value = '';
+    });
+
     const actions = [
       { label: '취소', onClick: () => close() },
       {
@@ -273,9 +349,10 @@ Views.home = async function () {
           const data = {
             title: wrap.querySelector('#hResTitle').value.trim() || '제목 없는 자료',
             content: wrap.querySelector('#hResContent').value,
+            attachments,
           };
           if (existing) await Models.updateResearchPost(existing.id, data);
-          else await Models.createResearchPost(Models.SHARED_RESEARCH_ID, data);
+          else await Models.createResearchPost(targetWorkId, data);
           close();
           await renderHomeResearch();
         },
@@ -297,6 +374,7 @@ Views.home = async function () {
   }
 
   document.getElementById('homeAddResearchBtn').addEventListener('click', () => openHomeResearchModal(null));
+  renderResearchTabs();
   await renderHomeResearch();
 
   if (works.length) {
@@ -490,6 +568,10 @@ Views.home = async function () {
             <input type="time" class="input" id="hSchEndTime">
           </div>
         </div>
+        <div class="form-field">
+          <label>메모 (선택)</label>
+          <textarea class="textarea" id="hSchNote" rows="3" placeholder="이 일정에 대해 기억해둘 내용을 적어보세요"></textarea>
+        </div>
       `;
       wrap.querySelector('#hSchAllDay').addEventListener('change', (e) => {
         wrap.querySelector('#hSchTimeField').hidden = e.target.checked;
@@ -511,6 +593,7 @@ Views.home = async function () {
                 allDay: isAllDay,
                 startTime: isAllDay ? null : wrap.querySelector('#hSchStartTime').value || null,
                 endTime: isAllDay ? null : wrap.querySelector('#hSchEndTime').value || null,
+                note: wrap.querySelector('#hSchNote').value.trim(),
               });
               close();
               await onSaved(workId);
@@ -595,7 +678,7 @@ Views.home = async function () {
           ev.className = 'calendar__event' + (item.completed ? ' calendar__event--done' : '');
           ev.style.background = `color-mix(in srgb, ${item.workColor} 18%, transparent)`;
           ev.style.color = item.workColor;
-          ev.title = `${item.workTitle} · ${item.title}`;
+          ev.title = item.note ? `${item.workTitle} · ${item.title}\n${item.note}` : `${item.workTitle} · ${item.title}`;
           ev.textContent = item.title;
           ev.addEventListener('click', () => Router.go(`#/work/${item.workId}/goals`));
           cell.appendChild(ev);

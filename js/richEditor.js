@@ -115,7 +115,18 @@ const RichEditor = {
       const span = document.createElement('span');
       span.style[styleProp] = value;
       span.dataset.riMarker = '1'; // temporary — lets us find the just-inserted node(s) below
-      span.appendChild(range.cloneContents());
+      const frag = range.cloneContents();
+      // If any part of the selection was already wrapped in a span carrying its own
+      // fontFamily/fontSize (e.g. re-sizing a selection that includes text sized by
+      // an earlier pass), that descendant's inline style wins over our new outer
+      // span regardless of the value we set here — CSS never lets an ancestor's
+      // declaration override an element's own. Clearing just this one property on
+      // every nested element first is what makes the new value actually apply to
+      // the whole selection instead of only the previously-unstyled part of it.
+      frag.querySelectorAll('*').forEach((el) => {
+        if (el.style && el.style[styleProp]) el.style[styleProp] = '';
+      });
+      span.appendChild(frag);
       document.execCommand('insertHTML', false, span.outerHTML);
 
       // The browser may have split the marker span across multiple paragraphs while

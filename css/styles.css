@@ -408,15 +408,26 @@ body.home-route .sidebar { display: none; }
 /* ---------------- Home ---------------- */
 .work-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
 .work-card {
+  position: relative;
   background: var(--glass-bg-2);
-  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(180%);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(180%);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1.1), box-shadow 0.2s ease, border-color 0.2s ease;
   animation: cardRise 0.35s cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+/* Soft diagonal sheen — the "glossy pane" cue that reads as glass rather than a
+   plain translucent panel. Kept faint and pointer-events:none so it never
+   interferes with reading the card's own content painted after it. */
+.work-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 35%);
+  pointer-events: none;
 }
 .work-card:hover {
   transform: translateY(-4px) scale(1.01);
@@ -439,8 +450,8 @@ body.home-route .sidebar { display: none; }
 .work-card__body p { margin: 0 0 10px; }
 /* 작품정보(제목/소개/진행률/칩)와 연결망·메모·최근작업 블록을 시각적으로 분리 —
    블록 묶음은 옅은 배경 + 상단 구분선으로 "카드 안의 또 다른 섹션"임을 드러냄. */
-.work-card__info { padding: 14px 16px 10px; }
-.work-card__blocks { padding: 10px 16px 14px; background: var(--bg-elevated-2); border-top: 1px solid var(--border); }
+.work-card__info { padding: 14px 16px 10px; position: relative; }
+.work-card__blocks { padding: 4px 12px 12px; border-top: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 7px; position: relative; }
 .work-card__stats { display: flex; gap: 10px; font-size: 11.5px; color: var(--text-secondary); flex-wrap: wrap; }
 
 .empty-state {
@@ -1001,6 +1012,7 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .schedule-card__body { flex: 1; }
 .schedule-card__title { font-size: 13px; font-weight: 600; }
 .schedule-card__meta { font-size: 11.5px; color: var(--text-secondary); }
+.schedule-card__note { font-size: 11.5px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-card__actions { display: flex; gap: 4px; }
 
 /* ---------------- Widgets ---------------- */
@@ -1109,10 +1121,24 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .work-card__upcoming { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding-top: 8px; border-top: 1px solid var(--border); }
 .work-card__upcoming-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Each card's 🕸️ 연결망 / 📌 메모 / 📝 최근 작업 block — same "labeled section" shape
-   for all three, so every card reads consistently whether or not it has content. */
-.work-card__block { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
-.work-card__block:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+/* Each card's 🕸️ 연결망 / 📌 메모 / 📝 최근 작업 / 📎 자료 수집 block reads as its own
+   small glass "sub-card" nested inside the outer work card, with a lighter
+   independent hover response — a visual cue that these are distinct pieces of
+   information, not one continuous scroll of text. Clicking anywhere still
+   navigates via the outer .work-card handler; this is a hover affordance only. */
+.work-card__block {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-elevated) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, transparent);
+  transition: background 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.work-card__block:hover {
+  background: color-mix(in srgb, var(--work-color, var(--accent)) 8%, color-mix(in srgb, var(--bg-elevated) 45%, transparent));
+  border-color: color-mix(in srgb, var(--work-color, var(--accent)) 30%, var(--glass-border));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
 .work-card__block-label { font-size: 10px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 5px; }
 .work-card__block-empty { font-size: 11.5px; padding: 2px 0; }
 .work-card__memo-item { font-size: 11.5px; line-height: 1.5; padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1134,7 +1160,8 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .home-section-head .btn { flex-shrink: 0; }
 .home-research { margin: 28px 0; }
 .home-research h2 { font-size: 15px; margin-bottom: 4px; }
-.home-research #homeResearchList { margin-top: 12px; }
+.home-research__tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.home-research #homeResearchList { margin-top: 4px; }
 
 /* ---------------- Memo canvas board ---------------- */
 /* ---------------- Research (자료 수집) ---------------- */
