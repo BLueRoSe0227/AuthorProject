@@ -185,13 +185,29 @@ Views.home = async function () {
       ${
         works.length
           ? `<section class="home-calendar">
-              <h2>📅 전체 일정</h2>
-              <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요.</p>
+              <div class="home-section-head">
+                <div>
+                  <h2>📅 전체 일정</h2>
+                  <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요.</p>
+                </div>
+                <button class="btn btn--primary btn--sm" id="homeAddScheduleBtn">+ 일정 추가</button>
+              </div>
               <div class="home-calendar__legend" id="homeCalendarLegend"></div>
               <div id="homeCalendarArea"></div>
             </section>`
           : ''
       }
+
+      <section class="home-research">
+        <div class="home-section-head">
+          <div>
+            <h2>📎 통합 자료 수집</h2>
+            <p class="muted">특정 작품에 속하지 않는 공용 취재 자료·참고 링크를 모아두세요.</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" id="homeAddResearchBtn">+ 자료 추가</button>
+        </div>
+        <div id="homeResearchList" class="memo-list"></div>
+      </section>
 
       <section class="home-inbox">
         <h2>📥 전체 메모</h2>
@@ -211,6 +227,78 @@ Views.home = async function () {
   document.getElementById('homeTimerBtn').addEventListener('click', (e) => Timer.openPopover(e.currentTarget));
   document.getElementById('homeSettingsBtn').addEventListener('click', () => Views.openSettings(null));
 
+  // 통합 자료 수집 — research posts not tied to any single work (Models.SHARED_RESEARCH_ID),
+  // shown regardless of whether any work exists yet, mirroring the 전체 메모 section below.
+  async function renderHomeResearch() {
+    const listEl = document.getElementById('homeResearchList');
+    const posts = await Models.getResearchPostsForWork(Models.SHARED_RESEARCH_ID);
+    listEl.innerHTML = '';
+    if (!posts.length) {
+      listEl.innerHTML = `<p class="muted">아직 등록된 공용 자료가 없습니다. 특정 작품에 속하지 않는 자료를 여기에 모아보세요.</p>`;
+      return;
+    }
+    posts.forEach((p) => {
+      const item = document.createElement('div');
+      item.className = 'memo-card';
+      item.innerHTML = `
+        <p><strong>${Utils.escapeHtml(p.title)}</strong></p>
+        <p>${Utils.escapeHtml(Utils.truncate(Utils.stripHtml(p.content), 100)) || '<span class="muted">(내용 없음)</span>'}</p>
+        <div class="memo-card__meta">
+          <span>공용 자료</span>
+          <span>${Utils.formatDate(p.updatedAt)}</span>
+        </div>
+      `;
+      item.addEventListener('click', () => openHomeResearchModal(p));
+      listEl.appendChild(item);
+    });
+  }
+
+  function openHomeResearchModal(existing) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div class="form-field">
+        <label>제목</label>
+        <input type="text" class="input" id="hResTitle" value="${Utils.escapeHtml(existing?.title || '')}" placeholder="예: OO 시대 배경 자료">
+      </div>
+      <div class="form-field">
+        <label>내용</label>
+        <textarea class="textarea" id="hResContent" rows="6" placeholder="취재 내용, 참고 링크, 메모를 자유롭게 적어보세요...">${Utils.escapeHtml(existing?.content || '')}</textarea>
+      </div>
+    `;
+    const actions = [
+      { label: '취소', onClick: () => close() },
+      {
+        label: existing ? '저장' : '추가', primary: true,
+        onClick: async () => {
+          const data = {
+            title: wrap.querySelector('#hResTitle').value.trim() || '제목 없는 자료',
+            content: wrap.querySelector('#hResContent').value,
+          };
+          if (existing) await Models.updateResearchPost(existing.id, data);
+          else await Models.createResearchPost(Models.SHARED_RESEARCH_ID, data);
+          close();
+          await renderHomeResearch();
+        },
+      },
+    ];
+    if (existing) {
+      actions.splice(1, 0, {
+        label: '삭제', danger: true,
+        onClick: async () => {
+          const ok = await UI.confirm(`"${existing.title}" 자료를 삭제할까요?`, { title: '자료 삭제', confirmLabel: '삭제', danger: true });
+          if (!ok) return;
+          await Models.deleteResearchPost(existing.id);
+          close();
+          await renderHomeResearch();
+        },
+      });
+    }
+    const { close } = UI.openModal({ title: existing ? '자료 수정' : '자료 추가', bodyEl: wrap, actions });
+  }
+
+  document.getElementById('homeAddResearchBtn').addEventListener('click', () => openHomeResearchModal(null));
+  await renderHomeResearch();
+
   if (works.length) {
     const grid = document.getElementById('workGrid');
 
@@ -218,15 +306,16 @@ Views.home = async function () {
     // instant client-side re-render instead of re-querying IndexedDB for every card.
     const cardDataByWork = {};
     await Promise.all(works.map(async (w) => {
-      const [stats, goal, recent, relData, memos] = await Promise.all([
+      const [stats, goal, recent, relData, memos, research] = await Promise.all([
         Models.getWorkStats(w.id),
         Models.getGoalSummary(w.id),
         Models.getRecentActivity(w.id, 6), // over-fetched, then split into 최근 작업 vs 메모 blocks below
         Models.getRelationshipGraphData(w.id),
         DB.getAllByIndex('memos', 'workId', w.id),
+        Models.getResearchPostsForWork(w.id),
       ]);
       const activeMemos = memos.filter((m) => !m.archived).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-      cardDataByWork[w.id] = { stats, goal, recent: recent.filter((r) => r.type !== 'memo'), memos: activeMemos, relData };
+      cardDataByWork[w.id] = { stats, goal, recent: recent.filter((r) => r.type !== 'memo'), memos: activeMemos, relData, research };
     }));
 
     const SORT_KEY = 'sw-home-sort';
@@ -246,7 +335,7 @@ Views.home = async function () {
     function renderGrid() {
       grid.innerHTML = '';
       sortedWorks().forEach((w) => {
-        const { stats, goal, recent, memos, relData } = cardDataByWork[w.id];
+        const { stats, goal, recent, memos, relData, research } = cardDataByWork[w.id];
         const todoCount = goal.upcoming.filter((i) => !i.completed).length;
         const connectionCount = stats.characterCount + stats.settingCount + stats.memoCount;
         const progressPct = goal.totalProgress !== null ? Math.round(goal.totalProgress * 100) : null;
@@ -271,47 +360,59 @@ Views.home = async function () {
             }).join('')
           : `<p class="muted work-card__block-empty">활동이 없어요</p>`;
 
+        const researchBlockHtml = research.length
+          ? research.slice(0, 2).map((p) => `<div class="work-card__memo-item">${Utils.escapeHtml(p.title)}</div>`).join('')
+          : `<p class="muted work-card__block-empty">자료가 없어요</p>`;
+
         const card = document.createElement('div');
         card.className = 'work-card work-card--rich';
         card.style.setProperty('--work-color', w.color);
         card.innerHTML = `
           <div class="work-card__color" style="background:${w.color}"></div>
           <div class="work-card__body">
-            <h3>${w.avatarDataUrl ? `<img class="work-card__avatar" src="${w.avatarDataUrl}" alt="">` : ''}${Utils.escapeHtml(w.title)}<span class="length-badge">${w.format === 'webnovel' ? '📡 웹소설' : Models.LENGTH_LABELS[w.length] || '장편'}</span>${w.genre && Models.GENRE_TEMPLATES[w.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[w.genre].label}</span>` : ''}</h3>
-            ${w.penName ? `<p class="muted work-card__pen-name">✒️ ${Utils.escapeHtml(w.penName)}</p>` : ''}
-            <p class="muted">${Utils.escapeHtml(Utils.truncate(w.description, 70) || '소개가 없습니다')}</p>
-            <div class="work-card__progress">
+            <div class="work-card__info">
+              <h3>${w.avatarDataUrl ? `<img class="work-card__avatar" src="${w.avatarDataUrl}" alt="">` : ''}${Utils.escapeHtml(w.title)}<span class="length-badge">${w.format === 'webnovel' ? '📡 웹소설' : Models.LENGTH_LABELS[w.length] || '장편'}</span>${w.genre && Models.GENRE_TEMPLATES[w.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[w.genre].label}</span>` : ''}</h3>
+              ${w.penName ? `<p class="muted work-card__pen-name">✒️ ${Utils.escapeHtml(w.penName)}</p>` : ''}
+              <p class="muted">${Utils.escapeHtml(Utils.truncate(w.description, 70) || '소개가 없습니다')}</p>
+              <div class="work-card__progress">
+                ${
+                  progressPct !== null
+                    ? `<div class="progress-bar"><div class="progress-bar__fill" style="width:${progressPct}%;background:${w.color}"></div></div><span class="work-card__progress-num">${progressPct}%</span>`
+                    : `<span class="muted work-card__no-goal">목표 미설정</span>`
+                }
+              </div>
+              <div class="work-card__chips">
+                <span class="work-card__chip text-pal-2">📂 ${stats.chapterCount}</span>
+                <span class="work-card__chip text-pal-3">📝 ${stats.sceneCount}</span>
+                <span class="work-card__chip text-pal-4">🧑 ${stats.characterCount}</span>
+                <span class="work-card__chip text-pal-5">🗺️ ${stats.settingCount}</span>
+                <span class="work-card__chip text-accent">📌 ${stats.memoCount}</span>
+                <span class="work-card__chip text-pal-1">✅ ${todoCount}</span>
+                <span class="work-card__chip muted">🕸️ ${connectionCount}개 연결</span>
+              </div>
               ${
-                progressPct !== null
-                  ? `<div class="progress-bar"><div class="progress-bar__fill" style="width:${progressPct}%;background:${w.color}"></div></div><span class="work-card__progress-num">${progressPct}%</span>`
-                  : `<span class="muted work-card__no-goal">목표 미설정</span>`
+                nextUpcoming
+                  ? `<div class="work-card__upcoming">📅 <span class="work-card__upcoming-title">${Utils.escapeHtml(nextUpcoming.title)}</span><span class="muted">${Utils.formatDday(nextUpcoming.date)}</span></div>`
+                  : ''
               }
             </div>
-            <div class="work-card__chips">
-              <span class="work-card__chip text-pal-2">📂 ${stats.chapterCount}</span>
-              <span class="work-card__chip text-pal-3">📝 ${stats.sceneCount}</span>
-              <span class="work-card__chip text-pal-4">🧑 ${stats.characterCount}</span>
-              <span class="work-card__chip text-pal-5">🗺️ ${stats.settingCount}</span>
-              <span class="work-card__chip text-accent">📌 ${stats.memoCount}</span>
-              <span class="work-card__chip text-pal-1">✅ ${todoCount}</span>
-              <span class="work-card__chip muted">🕸️ ${connectionCount}개 연결</span>
-            </div>
-            ${
-              nextUpcoming
-                ? `<div class="work-card__upcoming">📅 <span class="work-card__upcoming-title">${Utils.escapeHtml(nextUpcoming.title)}</span><span class="muted">${Utils.formatDday(nextUpcoming.date)}</span></div>`
-                : ''
-            }
-            <div class="work-card__block">
-              <div class="work-card__block-label">🕸️ 연결망</div>
-              ${graphBlockHtml}
-            </div>
-            <div class="work-card__block">
-              <div class="work-card__block-label">📌 메모</div>
-              ${memoBlockHtml}
-            </div>
-            <div class="work-card__block">
-              <div class="work-card__block-label">📝 최근 작업</div>
-              ${recentBlockHtml}
+            <div class="work-card__blocks">
+              <div class="work-card__block">
+                <div class="work-card__block-label">🕸️ 연결망</div>
+                ${graphBlockHtml}
+              </div>
+              <div class="work-card__block">
+                <div class="work-card__block-label">📌 메모</div>
+                ${memoBlockHtml}
+              </div>
+              <div class="work-card__block">
+                <div class="work-card__block-label">📝 최근 작업</div>
+                ${recentBlockHtml}
+              </div>
+              <div class="work-card__block">
+                <div class="work-card__block-label">📎 자료 수집</div>
+                ${researchBlockHtml}
+              </div>
             </div>
           </div>
         `;
@@ -348,11 +449,85 @@ Views.home = async function () {
     // Every schedule/chapter-deadline/work-target-date across every work, each
     // tagged with its own work's id/title/color — goal.upcoming was already fetched
     // per work above (cardDataByWork), so this is just a flatten, no extra queries.
-    const aggregateEvents = works.flatMap((w) =>
-      cardDataByWork[w.id].goal.upcoming.map((item) => ({ ...item, workId: w.id, workTitle: w.title, workColor: w.color }))
-    );
+    // Rebuilt (not just computed once) so adding a schedule from the home calendar's
+    // own "+ 일정 추가" button can refresh it without a full page reload.
+    function buildAggregateEvents() {
+      return works.flatMap((w) =>
+        cardDataByWork[w.id].goal.upcoming.map((item) => ({ ...item, workId: w.id, workTitle: w.title, workColor: w.color }))
+      );
+    }
+    let aggregateEvents = buildAggregateEvents();
     const calendarArea = document.getElementById('homeCalendarArea');
     let calendarCursor = new Date();
+
+    function openHomeScheduleModal(onSaved) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `
+        <div class="form-field">
+          <label>작품</label>
+          <select class="input" id="hSchWork">${works.map((w) => `<option value="${w.id}">${Utils.escapeHtml(w.title)}</option>`).join('')}</select>
+        </div>
+        <div class="form-field">
+          <label>제목</label>
+          <input type="text" class="input" id="hSchTitle" placeholder="예: 3화 초고 마감">
+        </div>
+        <div class="form-field">
+          <label>날짜</label>
+          <input type="date" class="input" id="hSchDate" value="${Utils.todayStr()}">
+        </div>
+        <div class="form-field">
+          <label>종료일 (선택, 여러 날에 걸친 일정일 때)</label>
+          <input type="date" class="input" id="hSchEndDate">
+        </div>
+        <div class="form-field">
+          <label class="checkbox-field"><input type="checkbox" id="hSchAllDay" checked> 종일</label>
+        </div>
+        <div class="form-field" id="hSchTimeField" hidden>
+          <label>시간</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="time" class="input" id="hSchStartTime">
+            <span class="muted">~</span>
+            <input type="time" class="input" id="hSchEndTime">
+          </div>
+        </div>
+      `;
+      wrap.querySelector('#hSchAllDay').addEventListener('change', (e) => {
+        wrap.querySelector('#hSchTimeField').hidden = e.target.checked;
+      });
+      const { close } = UI.openModal({
+        title: '일정 추가',
+        bodyEl: wrap,
+        actions: [
+          { label: '취소', onClick: () => close() },
+          {
+            label: '추가', primary: true,
+            onClick: async () => {
+              const workId = wrap.querySelector('#hSchWork').value;
+              const isAllDay = wrap.querySelector('#hSchAllDay').checked;
+              await Models.createSchedule(workId, {
+                title: wrap.querySelector('#hSchTitle').value.trim() || '새 일정',
+                date: wrap.querySelector('#hSchDate').value || Utils.todayStr(),
+                endDate: wrap.querySelector('#hSchEndDate').value || null,
+                allDay: isAllDay,
+                startTime: isAllDay ? null : wrap.querySelector('#hSchStartTime').value || null,
+                endTime: isAllDay ? null : wrap.querySelector('#hSchEndTime').value || null,
+              });
+              close();
+              await onSaved(workId);
+            },
+          },
+        ],
+      });
+    }
+
+    document.getElementById('homeAddScheduleBtn').addEventListener('click', () => {
+      openHomeScheduleModal(async (workId) => {
+        cardDataByWork[workId].goal = await Models.getGoalSummary(workId);
+        aggregateEvents = buildAggregateEvents();
+        renderGrid();
+        renderHomeCalendar();
+      });
+    });
 
     function renderHomeCalendar() {
       calendarArea.innerHTML = `

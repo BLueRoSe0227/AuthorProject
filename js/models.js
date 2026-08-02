@@ -868,6 +868,12 @@ const Models = {
   },
 
   // ---- Research posts (자료 수집: 리치텍스트 게시글 + 첨부파일, 목록/보드 이중 뷰) ----
+  // Sentinel workId (not a real work's uuid) for "통합 자료 수집" — research posts that
+  // aren't tied to any single work. Deliberately a non-null string: IndexedDB index
+  // keys must be a valid key type (string/number/date/array), and `null` would be
+  // silently dropped from the 'workId' index instead of being queryable.
+  SHARED_RESEARCH_ID: '__shared__',
+
   async getResearchPostsForWork(workId) {
     const posts = await DB.getAllByIndex('researchPosts', 'workId', workId);
     return posts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));

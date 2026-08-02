@@ -434,9 +434,13 @@ body.home-route .sidebar { display: none; }
 .work-grid .work-card:nth-child(6) { animation-delay: 0.22s; }
 .work-grid .work-card:nth-child(n+7) { animation-delay: 0.26s; }
 .work-card__color { height: 6px; }
-.work-card__body { padding: 14px 16px; }
+.work-card__body { padding: 0; }
 .work-card__body h3 { margin: 0 0 6px; font-size: 15px; }
 .work-card__body p { margin: 0 0 10px; }
+/* 작품정보(제목/소개/진행률/칩)와 연결망·메모·최근작업 블록을 시각적으로 분리 —
+   블록 묶음은 옅은 배경 + 상단 구분선으로 "카드 안의 또 다른 섹션"임을 드러냄. */
+.work-card__info { padding: 14px 16px 10px; }
+.work-card__blocks { padding: 10px 16px 14px; background: var(--bg-elevated-2); border-top: 1px solid var(--border); }
 .work-card__stats { display: flex; gap: 10px; font-size: 11.5px; color: var(--text-secondary); flex-wrap: wrap; }
 
 .empty-state {
@@ -976,7 +980,10 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .calendar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
 .calendar__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .calendar__head h3 { margin: 0; font-size: 14.5px; }
-.calendar__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+/* minmax(0, 1fr), not 1fr — plain 1fr columns have an implicit auto minimum, so a
+   long nowrap event title inflates the whole column past the grid's container
+   instead of being clipped by the cell's overflow:hidden. */
+.calendar__grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .calendar__dow { text-align: center; font-size: 11px; color: var(--text-tertiary); padding: 4px 0; }
 .calendar__cell { min-height: 78px; border: 1px solid var(--border); border-radius: 6px; padding: 4px; font-size: 11px; }
 .calendar__cell--muted { opacity: 0.35; }
@@ -1105,6 +1112,7 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 /* Each card's 🕸️ 연결망 / 📌 메모 / 📝 최근 작업 block — same "labeled section" shape
    for all three, so every card reads consistently whether or not it has content. */
 .work-card__block { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.work-card__block:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .work-card__block-label { font-size: 10px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 5px; }
 .work-card__block-empty { font-size: 11.5px; padding: 2px 0; }
 .work-card__memo-item { font-size: 11.5px; line-height: 1.5; padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1118,6 +1126,15 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .home-calendar__legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin: 10px 0 12px; font-size: 12px; color: var(--text-secondary); }
 .home-calendar__legend-item { display: flex; align-items: center; gap: 5px; }
 .home-calendar__legend-item i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+
+/* Section header row (title+desc on the left, an action button on the right) shared
+   by the home calendar and 통합 자료 수집 sections. */
+.home-section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
+.home-section-head h2 { margin-bottom: 4px; }
+.home-section-head .btn { flex-shrink: 0; }
+.home-research { margin: 28px 0; }
+.home-research h2 { font-size: 15px; margin-bottom: 4px; }
+.home-research #homeResearchList { margin-top: 12px; }
 
 /* ---------------- Memo canvas board ---------------- */
 /* ---------------- Research (자료 수집) ---------------- */

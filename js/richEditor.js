@@ -91,7 +91,18 @@ const RichEditor = {
 
     // execCommand('fontName'/'fontSize') only accepts legacy values (fontSize is
     // limited to the numbers 1-7, not real px), so selection-scoped font changes are
-    // applied by hand: wrap the selected range in a styled span.
+    // applied by hand — but via execCommand('insertHTML') rather than raw
+    // Range.surroundContents/extractContents (the previous approach). That mattered
+    // for three concrete bugs: (1) surroundContents throws whenever the selection
+    // partially crosses an existing element boundary, and its extractContents
+    // fallback could wrap multiple paragraphs' worth of content in one inline
+    // <span>, visually inserting a stray line break; (2) as a result the style
+    // sometimes landed on only part of a multi-paragraph selection; (3) manual DOM
+    // mutation via the Range API is invisible to the browser's native undo stack, so
+    // Ctrl+Z (and the toolbar's own ↶ button) couldn't undo it. Routing through
+    // execCommand('insertHTML') — the same primitive the paste handler below already
+    // relies on for arbitrary pasted markup — hands both the selection-replacement
+    // and undo recording to the browser's own (battle-tested) editing commands.
     function applyInlineStyle(styleProp, value) {
       const sel = window.getSelection();
       if (!sel.rangeCount || sel.isCollapsed) {
@@ -103,19 +114,23 @@ const RichEditor = {
       contentEl.focus();
       const span = document.createElement('span');
       span.style[styleProp] = value;
-      try {
-        range.surroundContents(span);
-      } catch (e) {
-        // Selection crosses a partial element boundary (surroundContents can't
-        // handle that) — fall back to extract + wrap + reinsert.
-        const frag = range.extractContents();
-        span.appendChild(frag);
-        range.insertNode(span);
+      span.dataset.riMarker = '1'; // temporary — lets us find the just-inserted node(s) below
+      span.appendChild(range.cloneContents());
+      document.execCommand('insertHTML', false, span.outerHTML);
+
+      // The browser may have split the marker span across multiple paragraphs while
+      // inserting (it will not nest block content inside an inline <span>) — collect
+      // every piece so the reselect below covers the whole styled range, and none of
+      // the marker attributes leak into saved content.
+      const inserted = contentEl.querySelectorAll('span[data-ri-marker="1"]');
+      if (inserted.length) {
+        inserted.forEach((el) => el.removeAttribute('data-ri-marker'));
+        const newRange = document.createRange();
+        newRange.setStartBefore(inserted[0]);
+        newRange.setEndAfter(inserted[inserted.length - 1]);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
       }
-      const newRange = document.createRange();
-      newRange.selectNodeContents(span);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
       notifyChange();
     }
 
