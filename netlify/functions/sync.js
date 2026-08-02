@@ -13,7 +13,13 @@
 const { getStore } = require('@netlify/blobs');
 
 const PIN_RE = /^\d{6}$/;
-const MAX_BYTES = 20 * 1024 * 1024; // generous for a full JSON export, still bounded
+// Netlify Functions (synchronous, AWS Lambda-based) reject request/response
+// bodies above ~6MB at the platform level, well before this function's own code
+// ever runs — a 20MB check here was meaningless. The client now gzip-compresses
+// the export and base64-wraps it as {"data":"..."} JSON (see App.cloudSave in
+// js/app.js), so this checks the size of that already-compressed wire payload,
+// with headroom left for the JSON wrapper and base64's ~33% overhead.
+const MAX_BODY_BYTES = 5.5 * 1024 * 1024;
 
 exports.handler = async (event) => {
   const pin = (event.queryStringParameters && event.queryStringParameters.pin) || '';
@@ -28,11 +34,15 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: `클라우드 저장소를 사용할 수 없습니다: ${err.message}` }) };
   }
 
+  // Stored/transferred as opaque base64 text end-to-end — the function never
+  // needs to gzip/gunzip itself, it just passes the client's compressed bytes
+  // through to and from Blobs, wrapped in plain JSON so there's no ambiguity
+  // around Netlify's binary-body encoding rules.
   if (event.httpMethod === 'GET') {
     try {
-      const data = await store.get(pin, { type: 'json' });
+      const data = await store.get(pin, { type: 'text' });
       if (!data) return { statusCode: 404, body: JSON.stringify({ error: '이 비밀번호로 저장된 데이터가 없습니다.' }) };
-      return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) };
+      return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) };
     } catch (err) {
       return { statusCode: 502, body: JSON.stringify({ error: `불러오기 실패: ${err.message}` }) };
     }
@@ -41,17 +51,20 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'PUT') {
     const body = event.body || '';
     const byteLength = Buffer.byteLength(body, 'utf8');
-    if (byteLength > MAX_BYTES) {
-      return { statusCode: 413, body: JSON.stringify({ error: '데이터가 너무 큽니다 (20MB 제한).' }) };
+    if (byteLength > MAX_BODY_BYTES) {
+      return { statusCode: 413, body: JSON.stringify({ error: `압축한 백업도 너무 커요 (약 ${(byteLength / 1024 / 1024).toFixed(1)}MB, 최대 ${(MAX_BODY_BYTES / 1024 / 1024).toFixed(1)}MB) — 첨부 이미지가 많은 작품이 있다면 용량을 줄여보세요.` }) };
     }
-    let payload;
+    let parsed;
     try {
-      payload = JSON.parse(body);
+      parsed = JSON.parse(body);
     } catch (err) {
       return { statusCode: 400, body: JSON.stringify({ error: '올바른 JSON이 아닙니다.' }) };
     }
+    if (typeof parsed.data !== 'string' || !parsed.data) {
+      return { statusCode: 400, body: JSON.stringify({ error: '압축된 데이터(data) 필드가 없습니다.' }) };
+    }
     try {
-      await store.setJSON(pin, payload);
+      await store.set(pin, parsed.data);
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     } catch (err) {
       return { statusCode: 502, body: JSON.stringify({ error: `저장 실패: ${err.message}` }) };

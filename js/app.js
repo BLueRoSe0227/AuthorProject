@@ -10,6 +10,44 @@ window.addEventListener('appinstalled', () => {
   UI.toast('앱이 설치되었습니다');
 });
 
+// Cloud sync (see App.cloudSave/cloudLoad) gzips the export before sending —
+// Netlify Functions reject request/response bodies above ~6MB at the platform
+// level (a hard limit, not something retrying or a bigger client-side check can
+// work around), and a full data export easily exceeds that once a few base64
+// images are in the mix. Wire format is plain base64 text wrapped in JSON
+// ({"data":"..."}) rather than a true binary body, so there's no ambiguity
+// around Netlify's binary-body detection — see sync.js.
+async function gzipToBase64(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+  const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+  return bytesToBase64(compressed);
+}
+
+async function base64ToGunzipJson(b64) {
+  const bytes = base64ToBytes(b64);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(stream).text();
+  return JSON.parse(text);
+}
+
+// btoa/atob need a plain string of char codes; spreading a large typed array
+// directly into String.fromCharCode can blow the call stack, so this chunks it.
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 const App = {
   state: {
     currentWorkId: null,
@@ -44,10 +82,11 @@ const App = {
   // -edited devices would be unsafe.
   async cloudSave(pin) {
     const payload = await DB.exportAll();
+    const compressed = await gzipToBase64(payload);
     const res = await fetch(`/api/sync?pin=${encodeURIComponent(pin)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ data: compressed }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error((data && data.error) || `저장 실패 (${res.status})`);
@@ -59,7 +98,8 @@ const App = {
     const res = await fetch(`/api/sync?pin=${encodeURIComponent(pin)}`);
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error((data && data.error) || `불러오기 실패 (${res.status})`);
-    await DB.importAll(data, 'replace');
+    const payload = await base64ToGunzipJson(data.data);
+    await DB.importAll(payload, 'replace');
     localStorage.setItem('sw-cloud-pin', pin);
     localStorage.setItem('sw-cloud-last-sync-at', String(Date.now()));
   },
