@@ -76,7 +76,10 @@ const Utils = {
   // the two use sites differ. Returns the internal render function so callers can
   // force a re-render (e.g. after `events` itself changed) without touching month
   // navigation state.
-  renderMonthCalendar(container, cursor, events, { renderEvent }) {
+  // onDateClick(dateStr) (optional) fires when a day cell itself is clicked (not
+  // one of its event chips, which keep their own click behavior) so callers can
+  // offer "click a date to add a schedule there".
+  renderMonthCalendar(container, cursor, events, { renderEvent, onDateClick }) {
     function render() {
       container.innerHTML = `
         <div class="calendar">
@@ -135,9 +138,15 @@ const Utils = {
       for (let d = 1; d <= daysInMonth; d++) {
         const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const cell = document.createElement('div');
-        cell.className = 'calendar__cell' + (key === todayKey ? ' calendar__cell--today' : '');
+        cell.className = 'calendar__cell' + (key === todayKey ? ' calendar__cell--today' : '') + (onDateClick ? ' calendar__cell--clickable' : '');
         cell.innerHTML = `<div class="calendar__cell-date">${d}</div>`;
         (eventsByDate[key] || []).forEach((item) => cell.appendChild(renderEvent(item)));
+        if (onDateClick) {
+          cell.addEventListener('click', (e) => {
+            if (e.target.closest('.calendar__event')) return; // let the chip's own click handler run instead
+            onDateClick(key);
+          });
+        }
         grid.appendChild(cell);
       }
     }

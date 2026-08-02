@@ -36,11 +36,16 @@ Views.editWorkFlow = async function (work) {
       <label>장르 (선택)</label>
       ${Views.renderGenreSelect(work.genre)}
     </div>
+    <div class="form-field">
+      <label>키워드 (선택)</label>
+      ${Views.renderHashtagInput('editWorkTags')}
+    </div>
   `;
   Views.bindLengthRadioGroup(wrap);
   Views.bindFormatRadioGroup(wrap, (format) => {
     wrap.querySelector('#editLengthField').hidden = format === 'webnovel';
   });
+  const tagsInput = Views.bindHashtagInput(wrap.querySelector('#editWorkTags'), work.tags || []);
 
   let avatarDataUrl = work.avatarDataUrl || null;
   const avatarPreview = wrap.querySelector('#avatarPreview');
@@ -92,7 +97,7 @@ Views.editWorkFlow = async function (work) {
           const format = wrap.querySelector('input[name="format"]:checked').value;
           const genre = wrap.querySelector('#workGenreSelect').value || null;
           const penName = wrap.querySelector('#editWorkPenName').value.trim();
-          await Models.updateWork(work.id, { title, description, length, format, genre, penName, avatarDataUrl });
+          await Models.updateWork(work.id, { title, description, length, format, genre, penName, avatarDataUrl, tags: tagsInput.getTags() });
           close();
           await App.refreshWorkSwitcher();
           Views.dashboard(work.id);
@@ -121,6 +126,7 @@ Views.dashboard = async function (workId) {
         <div>
           <h1>${work.avatarDataUrl ? `<img class="work-card__avatar" src="${work.avatarDataUrl}" alt="">` : ''}${Utils.escapeHtml(work.title)}<span class="length-badge">${isWebnovel ? '📡 웹소설' : Models.LENGTH_LABELS[work.length] || '장편'}</span>${work.genre && Models.GENRE_TEMPLATES[work.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[work.genre].label}</span>` : ''}</h1>
           <p class="muted">${work.penName ? `✒️ ${Utils.escapeHtml(work.penName)} · ` : ''}${Utils.escapeHtml(work.description || '소개가 없습니다')}</p>
+          ${work.tags && work.tags.length ? `<div class="work-card__tags">${work.tags.map((t) => `<span class="work-card__tag">#${Utils.escapeHtml(t)}</span>`).join('')}</div>` : ''}
         </div>
         <div class="home-header-actions">
           <button class="btn btn--ghost" id="exportWorkBtn">📤 내보내기</button>
@@ -154,7 +160,7 @@ Views.dashboard = async function (workId) {
           </div>
           <div class="graph-canvas-wrap">
             <canvas id="graphCanvas" role="img" aria-label="작품, 챕터, 장면, 캐릭터, 설정, 메모 간의 연결망 그래프. 드래그·마우스 전용이며, 각 항목 목록은 왼쪽 사이드바의 원고/캐릭터/설정 노트/메모 인박스 화면에서도 확인할 수 있습니다."></canvas>
-            <p class="graph-hint">드래그로 노드 이동 · 휠로 확대/축소 · 클릭으로 이동. 본문에 <code>[[이름]]</code>을 쓰면 캐릭터·설정·장면과 자동으로 연결됩니다.</p>
+            <p class="graph-hint">드래그로 노드 이동 · 휠로 확대/축소 · 더블클릭으로 이동. 본문에 <code>[[이름]]</code>을 쓰면 캐릭터·설정·장면과 자동으로 연결됩니다.</p>
           </div>
         </div>
 

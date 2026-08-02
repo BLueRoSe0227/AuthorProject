@@ -300,7 +300,10 @@ const Graph = {
     }
     window.addEventListener('mousemove', onWindowMouseMove);
     window.addEventListener('mouseup', onWindowMouseUp);
-    canvas.addEventListener('click', (e) => {
+    // A single click only drags/repositions a node (see onWindowMouseMove above) —
+    // navigating away needs a deliberate double-click, so trying to nudge a node
+    // no longer accidentally jumps to a different screen mid-drag.
+    canvas.addEventListener('dblclick', (e) => {
       const pos = getPos(e);
       const n = findNodeAt(pos.x, pos.y);
       if (n && onNodeClick) onNodeClick(n);
@@ -506,8 +509,9 @@ const Graph = {
     }
     window.addEventListener('mousemove', onWindowMouseMove);
     window.addEventListener('mouseup', onWindowMouseUp);
-    canvas.addEventListener('click', (e) => {
-      if (dragMoved) return;
+    // Same reasoning as Graph.mount: a single click/drag only repositions a node,
+    // opening the character panel needs a deliberate double-click.
+    canvas.addEventListener('dblclick', (e) => {
       const pos = getPos(e);
       const n = findNodeAt(pos.x, pos.y);
       if (n && onNodeClick) onNodeClick(n.key);

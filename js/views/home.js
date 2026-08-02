@@ -80,6 +80,57 @@ Views.bindColorSwatches = function (wrap, onSelect) {
   });
 };
 
+// Free-text hashtag/keyword chip input — used by the "새 작품 만들기"/"작품 정보
+// 수정" modals for work.tags. render() returns the markup to embed in a modal's
+// template string; bind() wires it up afterward and returns { getTags() } so the
+// caller can read the current list on save (kept in local closure state, not the
+// DOM, so ordering/dedup logic doesn't have to be re-derived from rendered chips).
+Views.renderHashtagInput = function (id) {
+  return `<div class="hashtag-input" id="${id}"><div class="hashtag-input__chips"></div><input type="text" class="hashtag-input__field" placeholder="키워드 입력 후 Enter (예: 회귀, 복수극)"></div>`;
+};
+
+Views.bindHashtagInput = function (wrap, initialTags) {
+  let tags = [...(initialTags || [])];
+  const chipsEl = wrap.querySelector('.hashtag-input__chips');
+  const fieldEl = wrap.querySelector('.hashtag-input__field');
+
+  function render() {
+    chipsEl.innerHTML = '';
+    tags.forEach((t, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'hashtag-chip';
+      chip.innerHTML = `#${Utils.escapeHtml(t)} <button type="button" class="hashtag-chip__remove">✕</button>`;
+      chip.querySelector('.hashtag-chip__remove').addEventListener('click', () => {
+        tags.splice(i, 1);
+        render();
+      });
+      chipsEl.appendChild(chip);
+    });
+  }
+
+  function addFromField() {
+    const raw = fieldEl.value.trim().replace(/^#+/, '');
+    fieldEl.value = '';
+    if (!raw || tags.includes(raw)) return;
+    tags.push(raw);
+    render();
+  }
+
+  fieldEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addFromField();
+    } else if (e.key === 'Backspace' && !fieldEl.value && tags.length) {
+      tags.pop();
+      render();
+    }
+  });
+  fieldEl.addEventListener('blur', addFromField);
+
+  render();
+  return { getTags: () => tags };
+};
+
 Views.createWorkFlow = async function () {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
@@ -110,9 +161,14 @@ Views.createWorkFlow = async function () {
       <label>색상</label>
       <div class="color-swatches" id="colorSwatches">${Views.renderColorSwatches(WORK_COLORS, WORK_COLORS[0])}</div>
     </div>
+    <div class="form-field">
+      <label>키워드 (선택)</label>
+      ${Views.renderHashtagInput('newWorkTags')}
+    </div>
   `;
   let selectedColor = WORK_COLORS[0];
   Views.bindColorSwatches(wrap.querySelector('#colorSwatches'), (c) => { selectedColor = c; });
+  const tagsInput = Views.bindHashtagInput(wrap.querySelector('#newWorkTags'), []);
 
   Views.bindLengthRadioGroup(wrap);
   Views.bindFormatRadioGroup(wrap, (format) => {
@@ -137,7 +193,7 @@ Views.createWorkFlow = async function () {
           const format = wrap.querySelector('input[name="format"]:checked').value;
           const genre = wrap.querySelector('#workGenreSelect').value || null;
           const applyTemplate = wrap.querySelector('#genreTemplateCheck').checked;
-          const work = await Models.createWork({ title, description, color: selectedColor, length, format, genre });
+          const work = await Models.createWork({ title, description, color: selectedColor, length, format, genre, tags: tagsInput.getTags() });
           if (genre && applyTemplate) await Models.applyGenreTemplate(work.id, genre);
           close();
           await App.refreshWorkSwitcher();
@@ -456,6 +512,7 @@ Views.home = async function () {
               <h3>${w.avatarDataUrl ? `<img class="work-card__avatar" src="${w.avatarDataUrl}" alt="">` : ''}${Utils.escapeHtml(w.title)}<span class="length-badge">${w.format === 'webnovel' ? '📡 웹소설' : Models.LENGTH_LABELS[w.length] || '장편'}</span>${w.genre && Models.GENRE_TEMPLATES[w.genre] ? `<span class="length-badge length-badge--genre">${Models.GENRE_TEMPLATES[w.genre].label}</span>` : ''}</h3>
               ${w.penName ? `<p class="muted work-card__pen-name">✒️ ${Utils.escapeHtml(w.penName)}</p>` : ''}
               <p class="muted">${Utils.escapeHtml(Utils.truncate(w.description, 70) || '소개가 없습니다')}</p>
+              ${w.tags && w.tags.length ? `<div class="work-card__tags">${w.tags.map((t) => `<span class="work-card__tag">#${Utils.escapeHtml(t)}</span>`).join('')}</div>` : ''}
               <div class="work-card__progress">
                 ${
                   progressPct !== null
@@ -542,7 +599,7 @@ Views.home = async function () {
     const calendarArea = document.getElementById('homeCalendarArea');
     let calendarCursor = new Date();
 
-    function openHomeScheduleModal(onSaved) {
+    function openHomeScheduleModal(onSaved, presetDate) {
       const wrap = document.createElement('div');
       wrap.innerHTML = `
         <div class="form-field">
@@ -555,7 +612,7 @@ Views.home = async function () {
         </div>
         <div class="form-field">
           <label>날짜</label>
-          <input type="date" class="input" id="hSchDate" value="${Utils.todayStr()}">
+          <input type="date" class="input" id="hSchDate" value="${presetDate || Utils.todayStr()}">
         </div>
         <div class="form-field">
           <label>종료일 (선택, 여러 날에 걸친 일정일 때)</label>
@@ -607,13 +664,15 @@ Views.home = async function () {
       });
     }
 
+    async function handleHomeScheduleSaved(workId) {
+      cardDataByWork[workId].goal = await Models.getGoalSummary(workId);
+      aggregateEvents = buildAggregateEvents();
+      renderGrid();
+      renderHomeCalendar();
+    }
+
     document.getElementById('homeAddScheduleBtn').addEventListener('click', () => {
-      openHomeScheduleModal(async (workId) => {
-        cardDataByWork[workId].goal = await Models.getGoalSummary(workId);
-        aggregateEvents = buildAggregateEvents();
-        renderGrid();
-        renderHomeCalendar();
-      });
+      openHomeScheduleModal(handleHomeScheduleSaved);
     });
 
     function renderHomeCalendar() {
@@ -628,6 +687,7 @@ Views.home = async function () {
           ev.addEventListener('click', () => Router.go(`#/work/${item.workId}/goals`));
           return ev;
         },
+        onDateClick: (dateStr) => openHomeScheduleModal(handleHomeScheduleSaved, dateStr),
       });
     }
     renderHomeCalendar();

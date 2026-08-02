@@ -11,3 +11,8 @@
   from = "/api/spellcheck"
   to = "/.netlify/functions/spellcheck"
   status = 200
+
+[[redirects]]
+  from = "/api/sync"
+  to = "/.netlify/functions/sync"
+  status = 200

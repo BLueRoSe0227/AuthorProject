@@ -397,6 +397,12 @@ body.home-route .sidebar { display: none; }
 .color-swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
 .color-swatch--selected { border-color: var(--text); }
 
+.hashtag-input { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--bg-elevated-2); }
+.hashtag-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 999px; padding: 3px 6px 3px 10px; }
+.hashtag-chip__remove { background: none; border: none; color: inherit; cursor: pointer; padding: 0 2px; font-size: 11px; line-height: 1; opacity: 0.7; }
+.hashtag-chip__remove:hover { opacity: 1; }
+.hashtag-input__field { flex: 1; min-width: 120px; border: none; background: none; outline: none; font-size: 13px; color: var(--text); padding: 4px 2px; }
+
 .avatar-picker { display: flex; align-items: center; gap: 14px; }
 .avatar-picker__preview { width: 56px; height: 56px; border-radius: 50%; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--bg-elevated-2); border: 1px solid var(--border); }
 .avatar-picker__preview img { width: 100%; height: 100%; object-fit: cover; }
@@ -999,6 +1005,8 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .calendar__cell { min-height: 78px; border: 1px solid var(--border); border-radius: 6px; padding: 4px; font-size: 11px; }
 .calendar__cell--muted { opacity: 0.35; }
 .calendar__cell--today { border-color: var(--accent); }
+.calendar__cell--clickable { cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; }
+.calendar__cell--clickable:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .calendar__cell-date { font-size: 11px; color: var(--text-secondary); margin-bottom: 3px; }
 .calendar__event { background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 4px; margin-bottom: 2px; font-size: 10.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar__event--pal-1 { background: color-mix(in srgb, var(--palette-1) 18%, transparent); color: var(--palette-1); }
@@ -1028,22 +1036,14 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .view--characters { display: flex; flex-direction: column; height: calc(100vh - 56px); }
 .view--split-inner { flex: 1; min-height: 0; height: auto; }
 .rel-summary { display: flex; flex-direction: column; gap: 2px; }
-.char-view-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-shrink: 0; }
-.rel-map-wrap { position: relative; height: calc(100vh - 130px); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); }
+/* List | detail | relationship map, all visible at once (previously the map was a
+   separate tab) — same row height as the plain 2-column .view--split. */
+.char-split { display: grid; grid-template-columns: 240px minmax(320px, 1fr) minmax(340px, 1.1fr); gap: 18px; flex: 1; min-height: 0; height: auto; }
+.rel-map-wrap { position: relative; height: 100%; min-height: 0; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); }
 #relMapCanvas { width: 100%; height: 100%; display: block; }
 .rel-legend { position: absolute; top: 12px; left: 12px; display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--text-secondary); background: var(--bg-elevated); padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .rel-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
 .rel-hint { position: absolute; bottom: 10px; left: 12px; right: 12px; font-size: 11px; color: var(--text-tertiary); margin: 0; pointer-events: none; }
-.rel-edit-panel {
-  position: absolute; top: 12px; right: 12px; width: 260px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius); padding: 12px; box-shadow: var(--glass-shadow);
-  animation: popIn 0.2s cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
-}
-.rel-edit-panel h4 { margin: 0 0 8px; font-size: 13px; }
 .rel-list-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .rel-list-item:last-child { border-bottom: none; }
 .rel-list-item__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -1108,6 +1108,8 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .group-member-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 
 /* ---------------- Rich work cards (home dashboard) ---------------- */
+.work-card__tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.work-card__tag { font-size: 11px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 2px 8px; }
 .work-card__progress { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .work-card__progress .progress-bar { flex: 1; }
 .work-card__progress-num { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
@@ -1396,6 +1398,10 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
   .view--split,
   .view--split-inner { grid-template-columns: 1fr; height: auto; }
   .side-list { max-height: 40vh; }
+
+  .char-split { grid-template-columns: 1fr; height: auto; }
+  .char-split .side-list { max-height: 40vh; }
+  .char-split .rel-map-wrap { height: 60vh; }
 
   .view--manuscript { grid-template-columns: 1fr; height: auto; }
   .manuscript-tree { max-height: 36vh; }

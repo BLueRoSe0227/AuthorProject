@@ -32,6 +32,54 @@ const Models = {
       { title: '기술/과학적 설정', category: '규칙/마법체계' },
       { title: '세계관 연표', category: '역사/사건' },
     ]},
+    romance_fantasy: { label: '로맨스판타지', notes: [
+      { title: '세계관 개요', category: '세계관' },
+      { title: '신분/왕실 관계도', category: '조직/세력' },
+      { title: '로맨스 라인 구도', category: '일반' },
+    ]},
+    regression: { label: '회귀·빙의·환생', notes: [
+      { title: '원래 삶(전생/과거) 요약', category: '역사/사건' },
+      { title: '회귀·빙의 시점과 목표', category: '일반' },
+      { title: '미리 알고 있는 미래 정보', category: '역사/사건' },
+    ]},
+    apocalypse: { label: '아포칼립스', notes: [
+      { title: '재난/멸망의 원인', category: '역사/사건' },
+      { title: '생존 규칙', category: '규칙/마법체계' },
+      { title: '거점/세력 지도', category: '지역' },
+    ]},
+    game_fantasy: { label: '게임판타지·시스템물', notes: [
+      { title: '시스템/스탯 체계', category: '규칙/마법체계' },
+      { title: '던전/퀘스트 설계', category: '사물/아이템' },
+      { title: '레벨업·성장 규칙', category: '규칙/마법체계' },
+    ]},
+    historical: { label: '사극·시대극', notes: [
+      { title: '시대적 배경', category: '세계관' },
+      { title: '신분 제도', category: '조직/세력' },
+      { title: '주요 사건 연표', category: '역사/사건' },
+    ]},
+    school: { label: '학원물', notes: [
+      { title: '학교/교실 설정', category: '지역' },
+      { title: '친구·라이벌 관계도', category: '조직/세력' },
+    ]},
+    bl_gl: { label: 'BL·GL', notes: [
+      { title: '두 주인공의 첫 만남', category: '역사/사건' },
+      { title: '관계의 장애물', category: '일반' },
+      { title: '세계관/설정', category: '세계관' },
+    ]},
+    drama: { label: '드라마·일상', notes: [
+      { title: '인물 관계도', category: '조직/세력' },
+      { title: '일상적 사건/에피소드 목록', category: '역사/사건' },
+    ]},
+    light_novel: { label: '라이트노벨', notes: [
+      { title: '세계관 개요', category: '세계관' },
+      { title: '개성 있는 캐릭터 설정', category: '일반' },
+      { title: '코믹/개그 포인트', category: '일반' },
+    ]},
+    sports: { label: '스포츠', notes: [
+      { title: '종목 규칙', category: '규칙/마법체계' },
+      { title: '팀/라이벌 구도', category: '조직/세력' },
+      { title: '대회 일정', category: '역사/사건' },
+    ]},
   },
 
   async applyGenreTemplate(workId, genreKey) {
@@ -42,7 +90,7 @@ const Models = {
     }
   },
 
-  async createWork({ title, description = '', color = '#6c5ce7', length = 'long', format = 'book', genre = null }) {
+  async createWork({ title, description = '', color = '#6c5ce7', length = 'long', format = 'book', genre = null, tags = [] }) {
     const now = new Date().toISOString();
     const work = {
       id: DB.uuid(),
@@ -52,6 +100,7 @@ const Models = {
       length, // 'long' (장편) | 'medium' (중편) | 'short' (단편) — 단행본(format:'book') 기준 분류
       format, // 'book' (단행본) | 'webnovel' (웹소설)
       genre, // GENRE_TEMPLATES 키 또는 null
+      tags, // 사용자가 입력한 자유 키워드 해시태그 (문자열 배열, '#' 없이 저장)
       penName: '',
       avatarDataUrl: null,
       targetTotalChars: 0,

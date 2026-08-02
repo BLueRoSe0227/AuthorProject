@@ -430,7 +430,7 @@ Views.goals = async function (workId) {
     const { close } = UI.openModal({ title: existing ? '투고 정보 수정' : '투고 추가', bodyEl: wrap, actions });
   }
 
-  function openScheduleModal(existing) {
+  function openScheduleModal(existing, presetDate) {
     const allDay = existing ? existing.allDay !== false : true;
     const wrap = document.createElement('div');
     wrap.innerHTML = `
@@ -440,7 +440,7 @@ Views.goals = async function (workId) {
       </div>
       <div class="form-field">
         <label>날짜</label>
-        <input type="date" class="input" id="schDate" value="${existing?.date || Utils.todayStr()}">
+        <input type="date" class="input" id="schDate" value="${existing?.date || presetDate || Utils.todayStr()}">
       </div>
       <div class="form-field">
         <label>종료일 (선택, 여러 날에 걸친 일정일 때)</label>
@@ -563,6 +563,7 @@ Views.goals = async function (workId) {
         });
         return ev;
       },
+      onDateClick: (dateStr) => openScheduleModal(null, dateStr),
     });
   }
 

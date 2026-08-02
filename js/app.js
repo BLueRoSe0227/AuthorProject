@@ -31,10 +31,37 @@ const App = {
   },
 
   // Called whenever the user exports data in any form (full JSON backup or a
-  // manuscript export) — see IMPROVEMENTS.md MD-02: with no server, real cloud
-  // sync isn't possible here, so this just tracks recency for the reminder below.
+  // manuscript export) — tracks recency for maybeRemindBackup below. Separate
+  // from cloud sync (App.cloudSave/cloudLoad below), which has its own
+  // last-synced timestamp since the two are independent habits.
   recordExport() {
     localStorage.setItem('sw-last-export-at', String(Date.now()));
+  },
+
+  // ---- Cloud sync (manual, 6-digit PIN, see netlify/functions/sync.js) ----
+  // Deliberately whole-dataset overwrite in both directions, not a merge — see
+  // sync.js's header comment for why an automatic merge across two independently
+  // -edited devices would be unsafe.
+  async cloudSave(pin) {
+    const payload = await DB.exportAll();
+    const res = await fetch(`/api/sync?pin=${encodeURIComponent(pin)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `저장 실패 (${res.status})`);
+    localStorage.setItem('sw-cloud-pin', pin);
+    localStorage.setItem('sw-cloud-last-sync-at', String(Date.now()));
+  },
+
+  async cloudLoad(pin) {
+    const res = await fetch(`/api/sync?pin=${encodeURIComponent(pin)}`);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `불러오기 실패 (${res.status})`);
+    await DB.importAll(data, 'replace');
+    localStorage.setItem('sw-cloud-pin', pin);
+    localStorage.setItem('sw-cloud-last-sync-at', String(Date.now()));
   },
 
   maybeRemindBackup() {
@@ -178,11 +205,23 @@ const App = {
   // Renders the export/import/clear controls into a container. Used inside the
   // "데이터 관리" tab of the unified settings modal.
   renderDataPanel(body) {
+    const savedPin = localStorage.getItem('sw-cloud-pin') || '';
+    const lastSyncAt = Number(localStorage.getItem('sw-cloud-last-sync-at') || 0);
     body.innerHTML = `
       <div class="settings-section">
         <h4>📲 앱으로 설치</h4>
         <p class="muted">브라우저 탭 대신 독립된 창으로 실행하고, 오프라인에서도 열 수 있어요.</p>
         <button class="btn btn--ghost btn--block" id="installAppBtn">📲 앱 설치</button>
+      </div>
+      <div class="settings-section">
+        <h4>☁ 클라우드 동기화 (기기 간 백업)</h4>
+        <p class="muted">6자리 비밀번호를 정하고, 다른 기기에서 같은 번호로 불러오면 같은 데이터를 볼 수 있어요. 실시간 동기화가 아니라 수동 저장/불러오기이며, 불러오기는 이 기기의 데이터를 완전히 교체합니다.<br><strong>주의:</strong> 계정 없이 6자리 숫자만으로 구분하는 방식이라 강력한 보안은 아니에요 — 민감한 내용 보호용으로는 쓰지 마세요.</p>
+        <input type="text" class="input" id="cloudPinInput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6자리 숫자 (예: 482913)" value="${Utils.escapeHtml(savedPin)}">
+        <div class="data-menu" style="margin-top:8px;">
+          <button class="btn btn--block" id="cloudSaveBtn">☁️ 클라우드에 저장</button>
+          <button class="btn btn--block btn--ghost" id="cloudLoadBtn">⬇️ 클라우드에서 불러오기</button>
+        </div>
+        <p class="muted" id="cloudSyncStatus" style="margin-top:6px;">${lastSyncAt ? `마지막 동기화: ${Utils.formatDate(new Date(lastSyncAt).toISOString())}` : '아직 동기화한 적이 없습니다'}</p>
       </div>
       <div class="data-menu">
         <button class="btn btn--block" id="exportBtn">📤 전체 데이터 내보내기 (JSON)</button>
@@ -192,6 +231,65 @@ const App = {
       </div>`;
 
     body.querySelector('#installAppBtn').addEventListener('click', () => App.promptInstall());
+
+    const pinInput = body.querySelector('#cloudPinInput');
+    const statusEl = body.querySelector('#cloudSyncStatus');
+    pinInput.addEventListener('input', () => {
+      pinInput.value = pinInput.value.replace(/\D/g, '').slice(0, 6);
+    });
+    function validPin() {
+      const pin = pinInput.value.trim();
+      if (!/^\d{6}$/.test(pin)) {
+        UI.toast('6자리 숫자를 입력해주세요', 'error');
+        return null;
+      }
+      return pin;
+    }
+
+    body.querySelector('#cloudSaveBtn').addEventListener('click', async (e) => {
+      const pin = validPin();
+      if (!pin) return;
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = '저장 중...';
+      try {
+        await App.cloudSave(pin);
+        statusEl.textContent = `마지막 동기화: ${Utils.formatDate(new Date().toISOString())}`;
+        UI.toast('클라우드에 저장했습니다');
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '☁️ 클라우드에 저장';
+      }
+    });
+
+    body.querySelector('#cloudLoadBtn').addEventListener('click', async (e) => {
+      const pin = validPin();
+      if (!pin) return;
+      const ok = await UI.confirm('이 기기의 모든 데이터를 클라우드에 저장된 내용으로 완전히 교체합니다. 지금 이 기기에만 있는 데이터는 사라져요. 계속할까요?', {
+        title: '클라우드에서 불러오기',
+        confirmLabel: '교체하고 불러오기',
+        danger: true,
+      });
+      if (!ok) return;
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = '불러오는 중...';
+      try {
+        await App.cloudLoad(pin);
+        statusEl.textContent = `마지막 동기화: ${Utils.formatDate(new Date().toISOString())}`;
+        UI.toast('클라우드에서 불러왔습니다');
+        UI.closeModal();
+        await App.refreshWorkSwitcher();
+        Router.go('#/');
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⬇️ 클라우드에서 불러오기';
+      }
+    });
 
     body.querySelector('#exportBtn').addEventListener('click', async () => {
       const payload = await DB.exportAll();
