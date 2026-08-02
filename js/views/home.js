@@ -65,6 +65,21 @@ Views.renderGenreSelect = function (selectedValue) {
   return `<select class="input" id="workGenreSelect">${options.join('')}</select>`;
 };
 
+// Shared by the "새 작품 만들기" color picker and characters.js's group-color picker.
+Views.renderColorSwatches = function (colors, selectedColor) {
+  return colors.map((c) => `<div class="color-swatch${c === selectedColor ? ' color-swatch--selected' : ''}" style="background:${c}" data-color="${c}"></div>`).join('');
+};
+
+Views.bindColorSwatches = function (wrap, onSelect) {
+  wrap.querySelectorAll('.color-swatch').forEach((sw) => {
+    sw.addEventListener('click', () => {
+      wrap.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('color-swatch--selected'));
+      sw.classList.add('color-swatch--selected');
+      onSelect(sw.dataset.color);
+    });
+  });
+};
+
 Views.createWorkFlow = async function () {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
@@ -93,22 +108,11 @@ Views.createWorkFlow = async function () {
     </div>
     <div class="form-field">
       <label>색상</label>
-      <div class="color-swatches" id="colorSwatches"></div>
+      <div class="color-swatches" id="colorSwatches">${Views.renderColorSwatches(WORK_COLORS, WORK_COLORS[0])}</div>
     </div>
   `;
   let selectedColor = WORK_COLORS[0];
-  const swatchWrap = wrap.querySelector('#colorSwatches');
-  WORK_COLORS.forEach((c) => {
-    const sw = document.createElement('div');
-    sw.className = 'color-swatch' + (c === selectedColor ? ' color-swatch--selected' : '');
-    sw.style.background = c;
-    sw.addEventListener('click', () => {
-      selectedColor = c;
-      swatchWrap.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('color-swatch--selected'));
-      sw.classList.add('color-swatch--selected');
-    });
-    swatchWrap.appendChild(sw);
-  });
+  Views.bindColorSwatches(wrap.querySelector('#colorSwatches'), (c) => { selectedColor = c; });
 
   Views.bindLengthRadioGroup(wrap);
   Views.bindFormatRadioGroup(wrap, (format) => {
@@ -613,67 +617,8 @@ Views.home = async function () {
     });
 
     function renderHomeCalendar() {
-      calendarArea.innerHTML = `
-        <div class="calendar">
-          <div class="calendar__head">
-            <button class="btn btn--ghost btn--sm" id="homeCalPrev">◀</button>
-            <h3 id="homeCalMonthLabel"></h3>
-            <button class="btn btn--ghost btn--sm" id="homeCalNext">▶</button>
-          </div>
-          <div class="calendar__grid" id="homeCalGrid"></div>
-        </div>
-      `;
-      document.getElementById('homeCalPrev').addEventListener('click', () => {
-        calendarCursor.setMonth(calendarCursor.getMonth() - 1);
-        renderHomeCalendar();
-      });
-      document.getElementById('homeCalNext').addEventListener('click', () => {
-        calendarCursor.setMonth(calendarCursor.getMonth() + 1);
-        renderHomeCalendar();
-      });
-
-      const year = calendarCursor.getFullYear();
-      const month = calendarCursor.getMonth();
-      document.getElementById('homeCalMonthLabel').textContent = `${year}년 ${month + 1}월`;
-
-      const grid = document.getElementById('homeCalGrid');
-      grid.innerHTML = '';
-      ['월', '화', '수', '목', '금', '토', '일'].forEach((d) => {
-        const el = document.createElement('div');
-        el.className = 'calendar__dow';
-        el.textContent = d;
-        grid.appendChild(el);
-      });
-
-      const firstDay = new Date(year, month, 1);
-      const startOffset = (firstDay.getDay() + 6) % 7; // Monday = 0
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const todayKey = Utils.todayStr();
-
-      const eventsByDate = {};
-      aggregateEvents.forEach((item) => {
-        // Multi-day schedules (item.endDate set) show on every day in the range —
-        // capped at 31 iterations so a bad/huge endDate can't fan out indefinitely.
-        const start = new Date(item.date);
-        const end = item.endDate ? new Date(item.endDate) : start;
-        for (let d = new Date(start), i = 0; d <= end && i < 31; d.setDate(d.getDate() + 1), i++) {
-          const key = Utils.dateStr(d);
-          eventsByDate[key] = eventsByDate[key] || [];
-          eventsByDate[key].push(item);
-        }
-      });
-
-      for (let i = 0; i < startOffset; i++) {
-        const cell = document.createElement('div');
-        cell.className = 'calendar__cell calendar__cell--muted';
-        grid.appendChild(cell);
-      }
-      for (let d = 1; d <= daysInMonth; d++) {
-        const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const cell = document.createElement('div');
-        cell.className = 'calendar__cell' + (key === todayKey ? ' calendar__cell--today' : '');
-        cell.innerHTML = `<div class="calendar__cell-date">${d}</div>`;
-        (eventsByDate[key] || []).forEach((item) => {
+      Utils.renderMonthCalendar(calendarArea, calendarCursor, aggregateEvents, {
+        renderEvent: (item) => {
           const ev = document.createElement('div');
           ev.className = 'calendar__event' + (item.completed ? ' calendar__event--done' : '');
           ev.style.background = `color-mix(in srgb, ${item.workColor} 18%, transparent)`;
@@ -681,10 +626,9 @@ Views.home = async function () {
           ev.title = item.note ? `${item.workTitle} · ${item.title}\n${item.note}` : `${item.workTitle} · ${item.title}`;
           ev.textContent = item.title;
           ev.addEventListener('click', () => Router.go(`#/work/${item.workId}/goals`));
-          cell.appendChild(ev);
-        });
-        grid.appendChild(cell);
-      }
+          return ev;
+        },
+      });
     }
     renderHomeCalendar();
   }

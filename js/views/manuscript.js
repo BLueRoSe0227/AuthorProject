@@ -73,6 +73,12 @@ Views.manuscript = async function (workId, sceneId) {
   // Tracks panes the user explicitly chose to open anyway despite the same scene
   // already being live in another pane (see mountPane's conflict guard below).
   let paneOverrides = [false];
+  // Each pane's live RichEditor handle, so it can be destroy()'d before the pane is
+  // re-mounted (scene switch, layout change) or the view is navigated away from —
+  // RichEditor.mount registers a document-level selectionchange listener that only
+  // .destroy() removes, and nothing else here calls it otherwise.
+  let paneRichHandles = [];
+  Router.onCleanup(() => paneRichHandles.forEach((h) => h && h.destroy()));
 
   function setPaneCount(n) {
     paneCount = n;
@@ -425,6 +431,13 @@ Views.manuscript = async function (workId, sceneId) {
   }
 
   function renderPanesLayout() {
+    // Destroy every currently-tracked pane editor up front, not just the ones
+    // mountPane() is about to remount below — shrinking pane count (e.g. 3→1)
+    // only remounts the panes that still exist, so without this the dropped
+    // panes' RichEditor handles (and their document-level listeners) would never
+    // get cleaned up at all.
+    paneRichHandles.forEach((h) => h && h.destroy());
+    paneRichHandles = [];
     const panesEl = document.getElementById('manuscriptPanes');
     panesEl.innerHTML = '';
     panesEl.className = `manuscript-panes manuscript-panes--${paneCount}`;
@@ -441,6 +454,7 @@ Views.manuscript = async function (workId, sceneId) {
     const panesEl = document.getElementById('manuscriptPanes');
     const paneEl = panesEl.children[index];
     if (!paneEl) return;
+    if (paneRichHandles[index]) { paneRichHandles[index].destroy(); paneRichHandles[index] = null; }
     paneEl.innerHTML = '';
 
     if (paneCount > 1) {
@@ -581,6 +595,7 @@ Views.manuscript = async function (workId, sceneId) {
         return titles;
       },
     });
+    paneRichHandles[index] = richHandle;
 
     titleInput.addEventListener('change', async () => {
       const t = titleInput.value.trim() || scene.title;

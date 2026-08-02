@@ -23,8 +23,21 @@ const Router = {
     return m ? m[1] : null;
   },
 
+  // View render functions overwrite #content's innerHTML directly rather than
+  // being told to tear down first, so anything a view starts that outlives its own
+  // DOM nodes (a requestAnimationFrame loop, a window/document-level listener) has
+  // to register its own teardown here to ever get cleaned up. Call this from a
+  // view's setup code with whatever cleanup callback it needs; resolve() runs and
+  // clears every registered callback right before handing off to the next route.
+  _cleanupFns: [],
+  onCleanup(fn) {
+    this._cleanupFns.push(fn);
+  },
+
   async resolve() {
     const hash = location.hash || '#/';
+    this._cleanupFns.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
+    this._cleanupFns = [];
     // Focus mode is a transient per-visit UI state (see manuscript.js); never let it
     // survive a navigation away from the manuscript view (e.g. via the Ctrl+K search
     // shortcut, which stays active even while the sidebar is hidden in focus mode).

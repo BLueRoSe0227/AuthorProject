@@ -274,7 +274,11 @@ const Graph = {
         panStart = { x: pos.x, y: pos.y, panX, panY };
       }
     });
-    window.addEventListener('mousemove', (e) => {
+    // Named (not inline) so destroy() below can actually remove them — panning/
+    // dragging needs to keep tracking the mouse outside the canvas's own bounds,
+    // which is why these live on window instead of canvas, but that also means
+    // they keep running forever if nothing ever unregisters them.
+    function onWindowMouseMove(e) {
       const pos = getPos(e);
       if (dragging) {
         const w = toWorld(pos.x, pos.y);
@@ -289,15 +293,13 @@ const Graph = {
         hovered = findNodeAt(pos.x, pos.y);
         canvas.style.cursor = hovered ? 'pointer' : 'grab';
       }
-    });
-    window.addEventListener('mouseup', (e) => {
-      if (dragging && onNodeClick) {
-        const pos = getPos(e);
-        const moved = Math.abs((dragging._downX || pos.x) - pos.x) > 3;
-      }
+    }
+    function onWindowMouseUp() {
       dragging = null;
       panning = false;
-    });
+    }
+    window.addEventListener('mousemove', onWindowMouseMove);
+    window.addEventListener('mouseup', onWindowMouseUp);
     canvas.addEventListener('click', (e) => {
       const pos = getPos(e);
       const n = findNodeAt(pos.x, pos.y);
@@ -313,6 +315,8 @@ const Graph = {
       destroy() {
         cancelAnimationFrame(raf);
         resizeObserver.disconnect();
+        window.removeEventListener('mousemove', onWindowMouseMove);
+        window.removeEventListener('mouseup', onWindowMouseUp);
       },
     };
   },
@@ -475,7 +479,7 @@ const Graph = {
       if (n) dragging = n;
       else { panning = true; panStart = { x: pos.x, y: pos.y, panX, panY }; }
     });
-    window.addEventListener('mousemove', (e) => {
+    function onWindowMouseMove(e) {
       const pos = getPos(e);
       if (dragging) {
         dragMoved = true;
@@ -492,14 +496,16 @@ const Graph = {
         hovered = findNodeAt(pos.x, pos.y);
         canvas.style.cursor = hovered ? 'pointer' : 'grab';
       }
-    });
-    window.addEventListener('mouseup', () => {
+    }
+    function onWindowMouseUp() {
       if (dragging && dragMoved && onPositionChange) {
         onPositionChange(dragging.key, dragging.x, dragging.y);
       }
       dragging = null;
       panning = false;
-    });
+    }
+    window.addEventListener('mousemove', onWindowMouseMove);
+    window.addEventListener('mouseup', onWindowMouseUp);
     canvas.addEventListener('click', (e) => {
       if (dragMoved) return;
       const pos = getPos(e);
@@ -516,6 +522,8 @@ const Graph = {
       destroy() {
         cancelAnimationFrame(raf);
         resizeObserver.disconnect();
+        window.removeEventListener('mousemove', onWindowMouseMove);
+        window.removeEventListener('mouseup', onWindowMouseUp);
       },
     };
   },

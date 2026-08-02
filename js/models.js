@@ -97,6 +97,8 @@ const Models = {
     await DB.deleteByIndex('memoGroups', 'workId', id);
     await DB.deleteByIndex('memoConnections', 'workId', id);
     await DB.deleteByIndex('submissions', 'workId', id);
+    await DB.deleteByIndex('missions', 'workId', id);
+    await DB.deleteByIndex('researchPosts', 'workId', id);
     await DB.delete('works', id);
   },
 
@@ -279,7 +281,9 @@ const Models = {
   },
 
   async deleteCharacter(id) {
-    const all = await DB.getAllByIndex('characters', 'workId', (await DB.get('characters', id))?.workId);
+    const target = await DB.get('characters', id);
+    if (!target) { await DB.delete('characters', id); return; } // already gone (e.g. a double-fired delete) — nothing to clean up
+    const all = await DB.getAllByIndex('characters', 'workId', target.workId);
     for (const c of all) {
       if (c.relationships && c.relationships.some((r) => r.targetId === id)) {
         c.relationships = c.relationships.filter((r) => r.targetId !== id);
@@ -640,6 +644,15 @@ const Models = {
     if (mission.kind === 'streak') {
       let streak = 0;
       const cursor = new Date(Math.min(new Date(end), new Date()));
+      // Mirrors Models.getWritingStreak: if we're evaluating today and today's
+      // target isn't met yet, start counting from yesterday so an in-progress day
+      // doesn't read as a broken streak. Only applies when the cursor actually
+      // landed on today (not some past mission.endDate) — a lapsed end date should
+      // just count what was actually logged, not get an "in progress" grace day.
+      const todayKey = Utils.todayStr();
+      if (Utils.dateStr(cursor) === todayKey && (byDate[todayKey] || 0) < mission.targetValue) {
+        cursor.setDate(cursor.getDate() - 1);
+      }
       for (;;) {
         const key = Utils.dateStr(cursor);
         if (key < mission.startDate) break;

@@ -54,6 +54,15 @@ async function renderResearchListView(workId, qId) {
     </div>
   `;
 
+  // renderDetail() below is called both via a full route change (list-item click
+  // -> Router.go, which Router.onCleanup below already covers) and directly, in
+  // place, right after creating a new post (+ 추가 button) — the latter doesn't go
+  // through Router.resolve() at all, so without tracking and destroying the
+  // previous handle here too, every "+ 추가" click would leak the RichEditor
+  // instance that was mounted for whatever post was open before it.
+  let richHandle = null;
+  Router.onCleanup(() => { if (richHandle) richHandle.destroy(); });
+
   async function refresh(selectId) {
     const posts = await Models.getResearchPostsForWork(workId);
     const itemsEl = document.getElementById('researchItems');
@@ -86,6 +95,7 @@ async function renderResearchListView(workId, qId) {
   }
 
   async function renderDetail(p) {
+    if (richHandle) { richHandle.destroy(); richHandle = null; }
     const detail = document.getElementById('researchDetail');
     detail.innerHTML = `
       <div class="detail-form">
@@ -109,7 +119,7 @@ async function renderResearchListView(workId, qId) {
     const titleInput = detail.querySelector('#rTitle');
     const indicator = detail.querySelector('#rSaveIndicator');
 
-    RichEditor.mount(detail.querySelector('#rEditorMount'), {
+    richHandle = RichEditor.mount(detail.querySelector('#rEditorMount'), {
       content: p.content,
       placeholder: '취재 내용, 참고 링크, 메모를 자유롭게 적어보세요...',
       onChange: Utils.debounce(async (html) => {

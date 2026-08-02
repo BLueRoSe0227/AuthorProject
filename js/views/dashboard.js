@@ -261,7 +261,7 @@ Views.dashboard = async function (workId) {
   const graphData = Graph.buildData(bundle);
   const canvas = document.getElementById('graphCanvas');
   if (graphData.nodes.length) {
-    Graph.mount(canvas, graphData, {
+    const graphHandle = Graph.mount(canvas, graphData, {
       onNodeClick: (n) => {
         const routes = {
           work: `#/work/${workId}/dashboard`,
@@ -274,6 +274,10 @@ Views.dashboard = async function (workId) {
         if (routes[n.type]) Router.go(routes[n.type]);
       },
     });
+    // Graph.mount runs its own requestAnimationFrame physics loop and window
+    // listeners for the life of the canvas — without this, navigating away from
+    // the dashboard (the app's most-visited route) leaves it running forever.
+    Router.onCleanup(graphHandle.destroy);
   }
 };
 

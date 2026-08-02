@@ -36,7 +36,7 @@ function openGroupModal(workId, group, allChars, onDone) {
     </div>
     <div class="form-field">
       <label>색상</label>
-      <div class="color-swatches" id="gColorSwatches"></div>
+      <div class="color-swatches" id="gColorSwatches">${Views.renderColorSwatches(GROUP_COLORS, (group && group.color) || GROUP_COLORS[0])}</div>
     </div>
     <div class="form-field">
       <label>구성원</label>
@@ -44,18 +44,7 @@ function openGroupModal(workId, group, allChars, onDone) {
     </div>
   `;
   let selectedColor = (group && group.color) || GROUP_COLORS[0];
-  const swatchWrap = wrap.querySelector('#gColorSwatches');
-  GROUP_COLORS.forEach((c) => {
-    const sw = document.createElement('div');
-    sw.className = 'color-swatch' + (c === selectedColor ? ' color-swatch--selected' : '');
-    sw.style.background = c;
-    sw.addEventListener('click', () => {
-      selectedColor = c;
-      swatchWrap.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('color-swatch--selected'));
-      sw.classList.add('color-swatch--selected');
-    });
-    swatchWrap.appendChild(sw);
-  });
+  Views.bindColorSwatches(wrap.querySelector('#gColorSwatches'), (c) => { selectedColor = c; });
 
   const memberIds = new Set(group ? group.memberIds : []);
   const membersWrap = wrap.querySelector('#gMembers');
@@ -446,6 +435,10 @@ async function renderRelationshipMap(workId) {
   }
 
   let mapHandle = null;
+  // refreshMap already destroys the previous handle before every remount within
+  // this view; this covers the remaining case — navigating away from 캐릭터
+  // entirely — where nothing would otherwise ever destroy the last-mounted one.
+  Router.onCleanup(() => { if (mapHandle) mapHandle.destroy(); });
 
   async function refreshMap() {
     const { characters, edges, groupColorByChar } = await load();

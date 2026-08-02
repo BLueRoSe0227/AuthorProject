@@ -35,41 +35,6 @@ const Proofreader = {
     return issues;
   },
 
-  // Replaces exactly the [issue.index, issue.index + issue.length) slice of
-  // contentEl's text with issue.suggestion, walking text nodes directly so any
-  // surrounding formatting (bold/italic spans etc.) is left untouched. Relies on
-  // contentEl.textContent being the same string check() scanned — it's always
-  // the concatenation of these same text nodes in document order.
-  applyFix(contentEl, issue) {
-    if (!issue || !issue.suggestion) return false;
-    const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    let pos = 0;
-    let node;
-    while ((node = walker.nextNode())) {
-      const len = node.textContent.length;
-      nodes.push({ node, start: pos, end: pos + len });
-      pos += len;
-    }
-
-    const targetStart = issue.index;
-    const targetEnd = issue.index + issue.length;
-    const overlapping = nodes.filter((n) => n.end > targetStart && n.start < targetEnd);
-    if (!overlapping.length) return false;
-
-    overlapping.forEach((entry, i) => {
-      const full = entry.node.textContent;
-      const localStart = Math.max(0, targetStart - entry.start);
-      const localEnd = Math.min(full.length, targetEnd - entry.start);
-      const prefix = full.slice(0, localStart);
-      const suffix = full.slice(localEnd);
-      entry.node.textContent = i === 0 ? prefix + issue.suggestion + suffix : prefix + suffix;
-    });
-
-    contentEl.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  },
-
   // Combines already-sorted issue lists (e.g. from check() and checkOnline()) into
   // one, greedily dropping later entries whose range overlaps an already-kept one.
   // Needed because local rules and the AI checker can flag the same/overlapping
@@ -97,8 +62,10 @@ const Proofreader = {
   // span can't be wrapped safely.
   markIssues(contentEl, issues) {
     issues.forEach((issue) => {
-      const start = offsetToNodeOffset(contentEl, issue.index);
-      const end = offsetToNodeOffset(contentEl, issue.index + issue.length);
+      // true/false here matters: see offsetToNodeOffset's comment on why the start
+      // and end of the same range must resolve boundary ties in opposite directions.
+      const start = offsetToNodeOffset(contentEl, issue.index, true);
+      const end = offsetToNodeOffset(contentEl, issue.index + issue.length, false);
       if (!start || !end) return;
       const range = document.createRange();
       range.setStart(start.node, start.offset);
@@ -215,14 +182,30 @@ const Proofreader = {
 // Converts a flat character offset (relative to contentEl.textContent — the same
 // coordinate space check()/checkOnline() results use) into a {node, offset} pair
 // usable with Range.setStart/setEnd.
-function offsetToNodeOffset(contentEl, charOffset) {
+//
+// contentEl.textContent concatenates every text node with no separator at all —
+// not even at paragraph <div> boundaries (Enter-created lines are separate <div>
+// elements in this contenteditable, each holding its own text node). So when a
+// flat offset lands exactly on a text-node boundary, "end of the previous node"
+// and "start of the next node" are indistinguishable in that flattened space, yet
+// they can sit in two different DIVs. Resolving a Range's START to "end of
+// previous" and its END to "start of next" — the wrong pairing for the SAME
+// ambiguous offset — makes the resulting Range begin in one paragraph and finish
+// in another, which markIssues' surroundContents/extractContents wrap can't
+// perform without corrupting the DOM (splitting/duplicating the paragraph divs,
+// which visually knocks the marked word onto its own line). preferNextNode makes
+// the caller pick a side deliberately: true for a range's start (snap forward,
+// never trailing off the previous paragraph), false for its end (snap backward,
+// never leading into the next one) — see markIssues.
+function offsetToNodeOffset(contentEl, charOffset, preferNextNode) {
   const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
   let pos = 0;
   let node;
   let last = null;
   while ((node = walker.nextNode())) {
     const len = node.textContent.length;
-    if (charOffset <= pos + len) return { node, offset: charOffset - pos };
+    const reachesHere = preferNextNode ? charOffset < pos + len : charOffset <= pos + len;
+    if (reachesHere) return { node, offset: charOffset - pos };
     pos += len;
     last = node;
   }

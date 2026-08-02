@@ -546,69 +546,9 @@ Views.goals = async function (workId) {
   }
 
   function renderCalendar(area, summary) {
-    area.innerHTML = `
-      <div class="calendar">
-        <div class="calendar__head">
-          <button class="btn btn--ghost btn--sm" id="prevMonth">◀</button>
-          <h3 id="calMonthLabel"></h3>
-          <button class="btn btn--ghost btn--sm" id="nextMonth">▶</button>
-        </div>
-        <div class="calendar__grid" id="calGrid"></div>
-      </div>
-    `;
-    document.getElementById('prevMonth').addEventListener('click', () => {
-      calendarCursor.setMonth(calendarCursor.getMonth() - 1);
-      renderCalendar(area, summary);
-    });
-    document.getElementById('nextMonth').addEventListener('click', () => {
-      calendarCursor.setMonth(calendarCursor.getMonth() + 1);
-      renderCalendar(area, summary);
-    });
-
-    const year = calendarCursor.getFullYear();
-    const month = calendarCursor.getMonth();
-    document.getElementById('calMonthLabel').textContent = `${year}년 ${month + 1}월`;
-
-    const grid = document.getElementById('calGrid');
-    grid.innerHTML = '';
-    ['월', '화', '수', '목', '금', '토', '일'].forEach((d) => {
-      const el = document.createElement('div');
-      el.className = 'calendar__dow';
-      el.textContent = d;
-      grid.appendChild(el);
-    });
-
-    const firstDay = new Date(year, month, 1);
-    const startOffset = (firstDay.getDay() + 6) % 7; // Monday = 0
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const todayKey = Utils.todayStr();
-
-    const eventsByDate = {};
-    summary.upcoming.forEach((item) => {
-      // Multi-day schedules (item.endDate set) show on every day in the range, not
-      // just the start date — capped at 31 iterations so a bad/huge endDate can't
-      // spin the calendar render into fanning out thousands of entries.
-      const start = new Date(item.date);
-      const end = item.endDate ? new Date(item.endDate) : start;
-      for (let d = new Date(start), i = 0; d <= end && i < 31; d.setDate(d.getDate() + 1), i++) {
-        const key = Utils.dateStr(d);
-        eventsByDate[key] = eventsByDate[key] || [];
-        eventsByDate[key].push(item);
-      }
-    });
-
-    for (let i = 0; i < startOffset; i++) {
-      const cell = document.createElement('div');
-      cell.className = 'calendar__cell calendar__cell--muted';
-      grid.appendChild(cell);
-    }
-    for (let d = 1; d <= daysInMonth; d++) {
-      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const cell = document.createElement('div');
-      cell.className = 'calendar__cell' + (key === todayKey ? ' calendar__cell--today' : '');
-      cell.innerHTML = `<div class="calendar__cell-date">${d}</div>`;
-      const eventKindClass = { work: 'calendar__event--pal-1', chapter: 'calendar__event--pal-2' };
-      (eventsByDate[key] || []).forEach((item) => {
+    const eventKindClass = { work: 'calendar__event--pal-1', chapter: 'calendar__event--pal-2' };
+    Utils.renderMonthCalendar(area, calendarCursor, summary.upcoming, {
+      renderEvent: (item) => {
         const ev = document.createElement('div');
         ev.className = 'calendar__event' + (eventKindClass[item.kind] ? ' ' + eventKindClass[item.kind] : '') + (item.completed ? ' calendar__event--done' : '');
         ev.textContent = item.title;
@@ -621,10 +561,9 @@ Views.goals = async function (workId) {
             Router.go(`#/work/${workId}/manuscript?chapter=${item.id}`);
           }
         });
-        cell.appendChild(ev);
-      });
-      grid.appendChild(cell);
-    }
+        return ev;
+      },
+    });
   }
 
   await renderSchedule();

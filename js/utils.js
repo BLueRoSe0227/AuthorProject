@@ -62,6 +62,89 @@ const Utils = {
     return Utils.dateStr(new Date());
   },
 
+  // Shared month-grid calendar renderer — used by both a single work's 목표 & 일정
+  // calendar (js/views/goals.js) and the home dashboard's cross-work aggregate
+  // calendar (js/views/home.js), which differ only in how a single event chip
+  // should look/behave (color source, click target), not in the grid/date math
+  // itself. `container`'s innerHTML is fully replaced; `cursor` (a Date) is
+  // mutated in place via setMonth on ◀/▶ so the caller's own reference stays the
+  // source of truth for "which month" across re-renders triggered by data
+  // changes elsewhere (e.g. a schedule being added). `events` items need at least
+  // `date` (and optionally `endDate` for a multi-day range); `renderEvent(item)`
+  // must return the HTMLElement for one event chip — full control over its
+  // class/style/tooltip/click handler is the caller's, since that's exactly where
+  // the two use sites differ. Returns the internal render function so callers can
+  // force a re-render (e.g. after `events` itself changed) without touching month
+  // navigation state.
+  renderMonthCalendar(container, cursor, events, { renderEvent }) {
+    function render() {
+      container.innerHTML = `
+        <div class="calendar">
+          <div class="calendar__head">
+            <button class="btn btn--ghost btn--sm" data-cal-prev>◀</button>
+            <h3 data-cal-month-label></h3>
+            <button class="btn btn--ghost btn--sm" data-cal-next>▶</button>
+          </div>
+          <div class="calendar__grid" data-cal-grid></div>
+        </div>
+      `;
+      container.querySelector('[data-cal-prev]').addEventListener('click', () => {
+        cursor.setMonth(cursor.getMonth() - 1);
+        render();
+      });
+      container.querySelector('[data-cal-next]').addEventListener('click', () => {
+        cursor.setMonth(cursor.getMonth() + 1);
+        render();
+      });
+
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth();
+      container.querySelector('[data-cal-month-label]').textContent = `${year}년 ${month + 1}월`;
+
+      const grid = container.querySelector('[data-cal-grid]');
+      ['월', '화', '수', '목', '금', '토', '일'].forEach((d) => {
+        const el = document.createElement('div');
+        el.className = 'calendar__dow';
+        el.textContent = d;
+        grid.appendChild(el);
+      });
+
+      const firstDay = new Date(year, month, 1);
+      const startOffset = (firstDay.getDay() + 6) % 7; // Monday = 0
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const todayKey = Utils.todayStr();
+
+      const eventsByDate = {};
+      events.forEach((item) => {
+        // Multi-day events (item.endDate set) show on every day in the range —
+        // capped at 31 iterations so a bad/huge endDate can't fan out indefinitely.
+        const start = new Date(item.date);
+        const end = item.endDate ? new Date(item.endDate) : start;
+        for (let d = new Date(start), i = 0; d <= end && i < 31; d.setDate(d.getDate() + 1), i++) {
+          const key = Utils.dateStr(d);
+          eventsByDate[key] = eventsByDate[key] || [];
+          eventsByDate[key].push(item);
+        }
+      });
+
+      for (let i = 0; i < startOffset; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'calendar__cell calendar__cell--muted';
+        grid.appendChild(cell);
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const cell = document.createElement('div');
+        cell.className = 'calendar__cell' + (key === todayKey ? ' calendar__cell--today' : '');
+        cell.innerHTML = `<div class="calendar__cell-date">${d}</div>`;
+        (eventsByDate[key] || []).forEach((item) => cell.appendChild(renderEvent(item)));
+        grid.appendChild(cell);
+      }
+    }
+    render();
+    return render;
+  },
+
   daysUntil(dateStr) {
     if (!dateStr) return null;
     const today = new Date(Utils.todayStr());
@@ -90,25 +173,6 @@ const Utils = {
     const plain = Utils.stripHtml(text);
     const matches = plain.matchAll(/\[\[([^\[\]]+)\]\]/g);
     return [...matches].map((m) => m[1].trim());
-  },
-
-  // Renders plain text content (from textarea) as HTML paragraphs with [[links]] resolved
-  renderContentHtml(text, resolveLink) {
-    const escaped = Utils.escapeHtml(text || '');
-    const linked = escaped.replace(/\[\[([^\[\]]+)\]\]/g, (whole, title) => {
-      const target = resolveLink ? resolveLink(title.trim()) : null;
-      if (target) {
-        return `<a href="#" class="wiki-link" data-type="${target.type}" data-id="${target.id}">${Utils.escapeHtml(
-          title
-        )}</a>`;
-      }
-      return `<span class="wiki-link wiki-link--missing">${Utils.escapeHtml(title)}</span>`;
-    });
-    return linked.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
-  },
-
-  uid(prefix = 'id') {
-    return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
   },
 
   truncate(str, len) {

@@ -45,37 +45,6 @@ describe('Proofreader.check', () => {
   });
 });
 
-describe('Proofreader.applyFix', () => {
-  it('replaces the matched slice in place, preserving surrounding formatting', () => {
-    document.body.innerHTML = '<div id="editor" contenteditable="true">그날 <b>정말</b> 안 됬다.</div>';
-    const el = document.getElementById('editor');
-    const hit = Proofreader.check(el.textContent).find((i) => i.ruleId === 'doeot');
-    const applied = Proofreader.applyFix(el, hit);
-    expect(applied).toBe(true);
-    expect(el.textContent).toBe('그날 정말 안 됐다.');
-    expect(el.querySelector('b').textContent).toBe('정말');
-  });
-
-  it('dispatches an input event so the editor autosave pipeline fires', () => {
-    document.body.innerHTML = '<div id="editor" contenteditable="true">됬다</div>';
-    const el = document.getElementById('editor');
-    let fired = false;
-    el.addEventListener('input', () => { fired = true; });
-    const [hit] = Proofreader.check(el.textContent);
-    Proofreader.applyFix(el, hit);
-    expect(fired).toBe(true);
-  });
-
-  it('is a no-op for issues without a suggestion', () => {
-    document.body.innerHTML = '<div id="editor" contenteditable="true">안되는 일</div>';
-    const el = document.getElementById('editor');
-    const hit = Proofreader.check(el.textContent).find((i) => i.ruleId === 'an-doe');
-    const applied = Proofreader.applyFix(el, hit);
-    expect(applied).toBe(false);
-    expect(el.textContent).toBe('안되는 일');
-  });
-});
-
 describe('Proofreader.mergeIssues', () => {
   it('drops later issues whose range overlaps an already-kept one', () => {
     const a = [{ index: 0, length: 3 }, { index: 10, length: 2 }];
@@ -104,14 +73,44 @@ describe('Proofreader.markIssues / unwrapMark / applyMark', () => {
     expect(mark.dataset.issueId).toBe(issues[0].id);
   });
 
-  it('wraps a range that partially overlaps existing formatting via the extract+wrap fallback', () => {
+  it('wraps a range that sits inside existing formatting without disturbing it', () => {
     document.body.innerHTML = '<div id="editor" contenteditable="true">그날 정말 안 <b>됬다</b>.</div>';
     const el = document.getElementById('editor');
     const issues = Proofreader.check(el.textContent);
     expect(() => Proofreader.markIssues(el, issues)).not.toThrow();
     expect(el.textContent).toBe('그날 정말 안 됬다.');
     expect(el.querySelector('.proofread-mark')).toBeTruthy();
-    expect(el.querySelector('.proofread-mark b')).toBeTruthy(); // inner <b> formatting preserved
+    // The <b> formatting must survive somewhere around the mark — nesting order
+    // (mark inside <b>, or <b> inside mark) isn't the contract, just that neither
+    // element nor the bold styling got lost or duplicated.
+    expect(el.querySelectorAll('b').length).toBe(1);
+    expect(el.querySelector('b').textContent).toBe('됬다');
+  });
+
+  it('wraps an issue that starts a new paragraph without corrupting the paragraph boundary', () => {
+    // Regression test: contentEl.textContent has no separator at paragraph <div>
+    // boundaries, so an issue whose match starts exactly at the first character of
+    // the second paragraph produces a charOffset that's ambiguous between "end of
+    // paragraph 1's text node" and "start of paragraph 2's text node". Resolving
+    // that the wrong way made the range start in paragraph 1 and end in paragraph
+    // 2, which surroundContents/extractContents couldn't wrap without corrupting
+    // the DOM — splitting/duplicating the paragraph <div>s and visually knocking
+    // the matched word onto its own line (the reported bug).
+    document.body.innerHTML = '<div id="editor" contenteditable="true">첫 문단 끝.<div>몇일동안 그랬다.</div></div>';
+    const el = document.getElementById('editor');
+    const issues = Proofreader.check(el.textContent);
+    expect(issues.length).toBeGreaterThan(0); // sanity: "몇일" should be flagged
+    expect(() => Proofreader.markIssues(el, issues)).not.toThrow();
+    expect(el.textContent).toBe('첫 문단 끝.몇일동안 그랬다.');
+    // Still exactly two top-level paragraph pieces — the leading bare text node
+    // and the one <div> — not split into extra empty/duplicate divs.
+    const topLevelDivs = [...el.children].filter((c) => c.tagName === 'DIV');
+    expect(topLevelDivs.length).toBe(1);
+    expect(topLevelDivs[0].textContent).toBe('몇일동안 그랬다.');
+    // And the mark must land inside that second paragraph, not straddling both.
+    const mark = el.querySelector('.proofread-mark');
+    expect(mark).toBeTruthy();
+    expect(topLevelDivs[0].contains(mark)).toBe(true);
   });
 
   it('unwrapMark removes the wrapper but keeps the original text and bold formatting', () => {
