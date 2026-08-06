@@ -554,7 +554,11 @@ Views.manuscript = async function (workId, sceneId) {
       const cleanHtml = Proofreader.stripMarksFromHtml(html);
       await Models.updateScene(scene.id, { content: cleanHtml });
       wordLabel.textContent = formatCharCount(cleanHtml);
-      indicator.textContent = '저장됨 · 방금';
+      indicator.textContent = '✓ 저장됨 · 방금';
+      // Small flash so a successful save is felt, not just read as text (DES-07).
+      indicator.classList.remove('save-indicator--flash');
+      void indicator.offsetWidth; // restart the animation even if it's already mid-flash
+      indicator.classList.add('save-indicator--flash');
       const treeTitleEl = document.querySelector(`.scene-row[data-scene-id="${scene.id}"] .scene-words`);
       if (treeTitleEl) treeTitleEl.textContent = formatCharCount(cleanHtml);
     }, Prefs.get().autosaveDelay);

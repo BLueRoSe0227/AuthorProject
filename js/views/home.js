@@ -1,6 +1,6 @@
 const Views = {};
 
-const WORK_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+const WORK_COLORS = Utils.PALETTE_COLORS;
 const LENGTH_OPTIONS = [
   { value: 'long', desc: '여러 챕터로 이어지는 연재형 작품' },
   { value: 'medium', desc: '몇 개 챕터로 완결되는 중간 길이 작품' },
@@ -248,7 +248,7 @@ Views.home = async function () {
               <div class="home-section-head">
                 <div>
                   <h2>📅 전체 일정</h2>
-                  <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요.</p>
+                  <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요. 날짜를 클릭해 일정을 바로 추가할 수 있어요.</p>
                 </div>
                 <button class="btn btn--primary btn--sm" id="homeAddScheduleBtn">+ 일정 추가</button>
               </div>

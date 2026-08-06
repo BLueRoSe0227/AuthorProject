@@ -180,6 +180,15 @@ const Theme = {
     let activeStyle = Theme.get().style;
     wrap.className = 'theme-picker';
 
+    // Color settings are scattered across several screens (작품 카드, 캐릭터 그룹,
+    // 관계 해시태그, 메모, 타이머 등 각자 만들 때 지정) — this picker only controls
+    // the shared theme (배경·강조색), so a short pointer here avoids "이 색은 다른
+    // 색상들과 무슨 관계지?" confusion (DES-09).
+    const guide = document.createElement('p');
+    guide.className = 'muted theme-picker__guide';
+    guide.textContent = '여기서 고르는 팔레트는 앱 전체의 배경·강조색을 바꿔요. 작품 카드, 캐릭터 그룹, 메모, 타이머 등 개별 항목 색상은 각 항목을 만들거나 편집할 때 따로 정해요.';
+    wrap.appendChild(guide);
+
     const modeRow = document.createElement('div');
     modeRow.className = 'theme-picker__modes';
     ['light', 'dark', 'system'].forEach((m) => {

@@ -1,4 +1,8 @@
 const Utils = {
+  // Shared 7-color palette used for work cards, character groups, memo cards, and
+  // the timer widget — single source instead of four near-identical arrays (DEV-07).
+  PALETTE_COLORS: ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'],
+
   countWords(text) {
     if (!text) return 0;
     const plain = Utils.stripHtml(text);

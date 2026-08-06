@@ -642,6 +642,9 @@ const Models = {
 
   // ---- Missions (도전과제형 목표: 스트릭/기간 누적/수동 체크) ----
   MISSION_KIND_LABELS: { streak: '연속 달성', total: '기간 누적', custom: '체크리스트' },
+  // Same three grey badges made it hard to tell mission kinds apart at a glance
+  // in a long list (DES-17) — pairs with mission-card--{kind} in styles.css.
+  MISSION_KIND_ICONS: { streak: '🔥', total: '📊', custom: '✅' },
 
   async getMissionsForWork(workId) {
     const missions = await DB.getAllByIndex('missions', 'workId', workId);
@@ -691,25 +694,8 @@ const Models = {
     const end = mission.endDate || Utils.todayStr();
 
     if (mission.kind === 'streak') {
-      let streak = 0;
-      const cursor = new Date(Math.min(new Date(end), new Date()));
-      // Mirrors Models.getWritingStreak: if we're evaluating today and today's
-      // target isn't met yet, start counting from yesterday so an in-progress day
-      // doesn't read as a broken streak. Only applies when the cursor actually
-      // landed on today (not some past mission.endDate) — a lapsed end date should
-      // just count what was actually logged, not get an "in progress" grace day.
-      const todayKey = Utils.todayStr();
-      if (Utils.dateStr(cursor) === todayKey && (byDate[todayKey] || 0) < mission.targetValue) {
-        cursor.setDate(cursor.getDate() - 1);
-      }
-      for (;;) {
-        const key = Utils.dateStr(cursor);
-        if (key < mission.startDate) break;
-        if ((byDate[key] || 0) >= mission.targetValue) {
-          streak++;
-          cursor.setDate(cursor.getDate() - 1);
-        } else break;
-      }
+      const cursorStart = new Date(Math.min(new Date(end), new Date()));
+      const streak = Models.streakEndingAt(byDate, mission.targetValue, cursorStart, mission.startDate);
       return {
         progress: mission.targetDays ? Math.min(1, streak / mission.targetDays) : null,
         current: streak,
@@ -785,24 +771,35 @@ const Models = {
     return logs.sort((a, b) => a.date.localeCompare(b.date));
   },
 
-  async getWritingStreak(workId, dailyGoalChars) {
-    if (!dailyGoalChars) return 0;
-    const logs = await Models.getWritingLogForWork(workId);
-    const byDate = Object.fromEntries(logs.map((l) => [l.date, l.chars]));
-    let streak = 0;
-    let cursor = new Date();
-    // if today's goal isn't met yet, start counting from yesterday so an in-progress day doesn't break the streak
-    if (!byDate[Utils.todayStr()] || byDate[Utils.todayStr()] < dailyGoalChars) {
+  // Counts the consecutive-day streak ending at `endDate` (inclusive) where a day
+  // "counts" when byDate[date] >= threshold. If endDate is today and today hasn't
+  // met the threshold yet, that in-progress day doesn't break the streak — counting
+  // starts from yesterday instead. `minDate` (optional) stops the count early
+  // (e.g. a mission's startDate) instead of walking back indefinitely.
+  // Shared by getWritingStreak and getMissionProgress's 'streak' kind (DEV-30).
+  streakEndingAt(byDate, threshold, endDate, minDate) {
+    const cursor = new Date(endDate);
+    const todayKey = Utils.todayStr();
+    if (Utils.dateStr(cursor) === todayKey && (byDate[todayKey] || 0) < threshold) {
       cursor.setDate(cursor.getDate() - 1);
     }
+    let streak = 0;
     for (;;) {
       const key = Utils.dateStr(cursor);
-      if ((byDate[key] || 0) >= dailyGoalChars) {
+      if (minDate && key < minDate) break;
+      if ((byDate[key] || 0) >= threshold) {
         streak++;
         cursor.setDate(cursor.getDate() - 1);
       } else break;
     }
     return streak;
+  },
+
+  async getWritingStreak(workId, dailyGoalChars) {
+    if (!dailyGoalChars) return 0;
+    const logs = await Models.getWritingLogForWork(workId);
+    const byDate = Object.fromEntries(logs.map((l) => [l.date, l.chars]));
+    return Models.streakEndingAt(byDate, dailyGoalChars, new Date());
   },
 
   async getWeeklyProgress(workId) {

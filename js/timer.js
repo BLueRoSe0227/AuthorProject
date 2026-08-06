@@ -1,7 +1,7 @@
 // Sidebar-accessible focus timer (free countdown or Pomodoro work/break cycles).
 // State lives in memory only (resets on reload) and the floating widget is mounted
 // on <body> directly so it survives route changes while a session is running.
-const TIMER_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+const TIMER_COLORS = Utils.PALETTE_COLORS;
 const TIMER_SCALE_MIN = 0.8;
 const TIMER_SCALE_MAX = 1.6;
 
