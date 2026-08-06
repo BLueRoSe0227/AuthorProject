@@ -110,6 +110,7 @@ const Proofreader = {
     while (span.firstChild) parent.insertBefore(span.firstChild, span);
     parent.removeChild(span);
     parent.normalize();
+    mergeAdjacentInlineTags(parent);
   },
 
   // "수정안 반영" — replaces the marked span's content with the suggestion, then
@@ -166,14 +167,22 @@ const Proofreader = {
     return { issues, truncated };
   },
 
+  // Session-only memory cache for lookupWord, keyed by "method:word" — the same
+  // word is often looked up repeatedly while reviewing a scene (DEV-16).
+  _dictCache: new Map(),
+
   // method: 'exact' | 'include' | 'start' (표준국어대사전 검색 방식)
   async lookupWord(word, method = 'exact') {
     const q = (word || '').trim();
     if (!q) throw new Error('검색어가 비어 있습니다.');
+    const cacheKey = `${method}:${q}`;
+    if (Proofreader._dictCache.has(cacheKey)) return Proofreader._dictCache.get(cacheKey);
     const res = await fetch(`/api/dict?q=${encodeURIComponent(q)}&method=${method}`);
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error((data && data.error) || `사전 조회 실패 (${res.status})`);
-    return Proofreader._normalize(data);
+    const result = Proofreader._normalize(data);
+    Proofreader._dictCache.set(cacheKey, result);
+    return result;
   },
 
   // stdict's JSON is XML-derived: a field is an object when there's exactly one
@@ -194,6 +203,31 @@ const Proofreader = {
     });
   },
 };
+
+// unwrapMark's fallback extract+wrap path can split one styled element (e.g. a
+// single <b>) into two adjacent siblings when a mark only partially overlapped it
+// (DEV-15) — renders identically, but leaves messy DOM. Merge such siblings back
+// into one once the mark is gone.
+function mergeAdjacentInlineTags(parent) {
+  let node = parent.firstChild;
+  while (node) {
+    const next = node.nextSibling;
+    if (
+      next &&
+      node.nodeType === 1 &&
+      next.nodeType === 1 &&
+      node.tagName === next.tagName &&
+      node.attributes.length === next.attributes.length &&
+      Array.from(node.attributes).every((attr) => next.getAttribute(attr.name) === attr.value)
+    ) {
+      while (next.firstChild) node.appendChild(next.firstChild);
+      next.remove();
+      node.normalize();
+      continue; // re-check node against its new next sibling
+    }
+    node = next;
+  }
+}
 
 // Converts a flat character offset (relative to contentEl.textContent — the same
 // coordinate space check()/checkOnline() results use) into a {node, offset} pair

@@ -549,9 +549,14 @@ Views.manuscript = async function (workId, sceneId) {
     // 'dirty' (typing, unsaved) / 'saving' / 'saved' — each gets its own dot style
     // (pulsing accent / spinning ring / solid success) so the state reads at a
     // glance instead of only through the text.
-    function setSaveIndicator(state, text) {
+    function setSaveIndicator(state, text, { flash = false } = {}) {
       indicator.className = `save-indicator save-indicator--${state}`;
       indicator.innerHTML = `<span class="save-indicator__dot"></span>${Utils.escapeHtml(text)}`;
+      if (flash) {
+        // Small flash so a successful save is felt, not just read as text (DES-07).
+        void indicator.offsetWidth; // restart the animation even if it's already mid-flash
+        indicator.classList.add('save-indicator--flash');
+      }
     }
 
     const debouncedSave = Utils.debounce(async (html) => {
@@ -562,7 +567,7 @@ Views.manuscript = async function (workId, sceneId) {
       const cleanHtml = Proofreader.stripMarksFromHtml(html);
       await Models.updateScene(scene.id, { content: cleanHtml });
       wordLabel.textContent = formatCharCount(cleanHtml);
-      setSaveIndicator('saved', '저장됨 · 방금');
+      setSaveIndicator('saved', '✓ 저장됨 · 방금', { flash: true });
       const treeTitleEl = document.querySelector(`.scene-row[data-scene-id="${scene.id}"] .scene-words`);
       if (treeTitleEl) treeTitleEl.textContent = formatCharCount(cleanHtml);
     }, Prefs.get().autosaveDelay);

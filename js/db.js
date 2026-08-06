@@ -1,4 +1,16 @@
 // IndexedDB data layer
+//
+// Schema version history (bump DB_VERSION + add an object-store block in
+// onupgradeneeded below when adding a store; keep this table up to date — DEV-13):
+//   v3 (2026-07-31, 969b9f2 "first commit"): works, chapters, scenes, sceneVersions,
+//     characters, settingNotes, memos, schedules, writingLog, relationshipTags,
+//     characterGroups — initial schema (v1/v2 predate this repo's git history)
+//   v5 (2026-08-01, 194c8eb "dashboard/settings overhaul..."): + memoGroups,
+//     memoConnections, submissions (memo canvas grouping, 투고 내역 tracking) — two
+//     version bumps (v4, v5) landed in this one commit, so the v3→v4 split isn't
+//     individually recoverable from git history
+//   v6 (2026-08-01, c41382e "dashboard/goals/research overhaul..."): + missions,
+//     researchPosts (미션 기능, 자료 수집 게시글)
 const DB_NAME = 'AuthorProjectDB';
 const DB_VERSION = 6;
 const STORE_NAMES = ['works', 'chapters', 'scenes', 'sceneVersions', 'characters', 'settingNotes', 'memos', 'schedules', 'writingLog', 'relationshipTags', 'characterGroups', 'memoGroups', 'memoConnections', 'submissions', 'missions', 'researchPosts'];

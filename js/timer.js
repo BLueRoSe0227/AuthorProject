@@ -4,7 +4,7 @@
 // session is running. Today's accumulated focus *seconds* are the one exception —
 // persisted to localStorage (see FOCUS_KEY below) so the dashboard's "오늘 집중"
 // stat survives a reload instead of resetting with everything else.
-const TIMER_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+const TIMER_COLORS = Utils.PALETTE_COLORS;
 const TIMER_SCALE_MIN = 0.8;
 const TIMER_SCALE_MAX = 1.6;
 

@@ -41,6 +41,7 @@ Views.goals = async function (workId) {
           <button class="btn btn--primary btn--sm" id="addScheduleBtn">+ 일정 추가</button>
         </div>
       </div>
+      <p class="muted schedule-hint">달력형에서는 날짜를 클릭해 새 일정을 바로 추가할 수 있어요.</p>
       <div id="scheduleArea"></div>
     </div>
   `;
@@ -239,10 +240,10 @@ Views.goals = async function (workId) {
       const { progress, current, target, done } = await Models.getMissionProgress(m);
       const pct = progress === null ? null : Math.round(progress * 100);
       const row = document.createElement('div');
-      row.className = 'mission-card' + (done ? ' mission-card--done' : '');
+      row.className = `mission-card mission-card--${m.kind}` + (done ? ' mission-card--done' : '');
       row.innerHTML = `
         <div class="mission-card__head">
-          <span class="mission-card__kind text-accent">${Models.MISSION_KIND_LABELS[m.kind]}</span>
+          <span class="mission-card__kind text-accent">${Models.MISSION_KIND_ICONS[m.kind]} ${Models.MISSION_KIND_LABELS[m.kind]}</span>
           <strong>${Utils.escapeHtml(m.title)}</strong>
           ${done ? '<span class="mission-card__done-badge">✅</span>' : ''}
         </div>
@@ -281,7 +282,7 @@ Views.goals = async function (workId) {
         <div class="radio-group" id="mKindGroup">${MISSION_KIND_OPTIONS.map((o) => `
           <label class="radio-chip${o.value === (existing?.kind || 'streak') ? ' radio-chip--selected' : ''}" data-value="${o.value}">
             <input type="radio" name="mKind" value="${o.value}" ${o.value === (existing?.kind || 'streak') ? 'checked' : ''}>
-            <strong>${Models.MISSION_KIND_LABELS[o.value]}</strong>
+            <strong>${Models.MISSION_KIND_ICONS[o.value]} ${Models.MISSION_KIND_LABELS[o.value]}</strong>
             <span>${o.desc}</span>
           </label>`).join('')}</div>
       </div>

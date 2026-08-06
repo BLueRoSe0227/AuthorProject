@@ -417,6 +417,19 @@ body.home-route .sidebar { display: none; }
 .textarea { resize: vertical; line-height: 1.55; }
 .input--lg { padding: 12px 14px; font-size: 15px; margin-bottom: 14px; }
 
+/* Cloud sync PIN field — lock icon signals "access code", not a regular text field (DES-24) */
+.cloud-pin-field { position: relative; }
+.cloud-pin-field .input { padding-left: 30px; }
+.cloud-pin-field__icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .color-swatches { display: flex; gap: 8px; }
 .color-swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
 .color-swatch--selected { border-color: var(--text); }
@@ -624,6 +637,12 @@ body.home-route .sidebar { display: none; }
 .save-indicator--saving .save-indicator__dot {
   width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--border); border-top-color: var(--accent);
   background: transparent; animation: spin 0.7s linear infinite;
+}
+/* Brief flash on successful save — the dot alone was still easy to miss (DES-07). */
+.save-indicator--flash { animation: saveIndicatorFlash 0.6s ease; }
+@keyframes saveIndicatorFlash {
+  0% { color: var(--success); transform: scale(1.08); }
+  100% { color: var(--text-tertiary); transform: scale(1); }
 }
 .scene-editor__footer { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
 .scene-summary-toggle summary { cursor: pointer; font-size: 12.5px; color: var(--text-secondary); margin-top: 8px; }
@@ -1002,8 +1021,13 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
 .chapter-goal-row__meta { font-size: 11.5px; color: var(--text-secondary); text-align: right; }
 
 .mission-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
-.mission-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.mission-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; border-left: 3px solid var(--border); }
 .mission-card--done { opacity: 0.7; }
+/* Left color bar per mission kind — three grey badges were hard to tell apart at a
+   glance in a long list (DES-17). */
+.mission-card--streak { border-left-color: var(--palette-2); }
+.mission-card--total { border-left-color: var(--palette-3); }
+.mission-card--custom { border-left-color: var(--palette-4); }
 .mission-card__head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .mission-card__kind { font-size: 11px; font-weight: 600; background: var(--accent-soft); padding: 2px 7px; border-radius: 999px; }
 .mission-card__done-badge { margin-left: auto; }
@@ -1377,6 +1401,19 @@ body.focus-mode .focus-exit-btn:not([hidden]) { display: flex; align-items: cent
   background: var(--bg-elevated-2);
   border: 1px solid var(--border);
   cursor: nwse-resize;
+}
+/* Visual dot stays 12px, but the clickable area is bigger — a 12px target is hard
+   to grab precisely with a mouse and worse on touch (DES-19). Clicks landing on
+   this pseudo-element still register on the handle itself, since generated
+   content isn't a separate hit-testing target. */
+.timer-widget__resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
 }
 .timer-widget__ring { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .timer-widget__ring-inner {

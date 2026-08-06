@@ -1,12 +1,11 @@
 const Views = {};
 
-// Falls back to a fixed rainbow only if Theme isn't available for some reason —
-// the normal path always draws from the user's active theme palette (js/theme.js)
-// so new work cards' colors match whatever theme they're currently using instead
-// of an unrelated hardcoded set.
-const WORK_COLORS_FALLBACK = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+// Falls back to the shared palette (Utils.PALETTE_COLORS) only if Theme isn't
+// available for some reason — the normal path always draws from the user's
+// active theme palette (js/theme.js) so new work cards' colors match whatever
+// theme they're currently using instead of an unrelated hardcoded set.
 function currentWorkColors() {
-  return (typeof Theme !== 'undefined' && Theme.currentPalette().colors) || WORK_COLORS_FALLBACK;
+  return (typeof Theme !== 'undefined' && Theme.currentPalette().colors) || Utils.PALETTE_COLORS;
 }
 const LENGTH_OPTIONS = [
   { value: 'long', desc: '여러 챕터로 이어지는 연재형 작품' },
@@ -255,7 +254,7 @@ Views.home = async function () {
               <div class="home-section-head">
                 <div>
                   <h2>📅 전체 일정</h2>
-                  <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요.</p>
+                  <p class="muted">모든 작품의 일정·챕터 마감·완결 목표를 한 달력에서 확인하세요. 날짜를 클릭해 일정을 바로 추가할 수 있어요.</p>
                 </div>
                 <button class="btn btn--primary btn--sm" id="homeAddScheduleBtn">+ 일정 추가</button>
               </div>

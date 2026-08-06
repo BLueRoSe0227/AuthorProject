@@ -10,7 +10,8 @@ const Search = {
 
     if (!workId) {
       works.forEach((w) => {
-        if (w.title.toLowerCase().includes(q) || (w.description || '').toLowerCase().includes(q)) {
+        const tagsMatch = (w.tags || []).some((t) => t.toLowerCase().includes(q));
+        if (w.title.toLowerCase().includes(q) || (w.description || '').toLowerCase().includes(q) || tagsMatch) {
           results.push({
             type: 'work',
             id: w.id,

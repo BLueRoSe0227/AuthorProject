@@ -48,6 +48,21 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
+// Retries only on network-level failures (fetch throwing — offline, DNS, timeout),
+// never on HTTP error responses: a 4xx/5xx is the server's real answer, and
+// cloudLoad's full-dataset replace shouldn't be retried against a server that's
+// actively rejecting it (DEV-25).
+async function fetchWithRetry(url, options, retries = 2) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+}
+
 const App = {
   state: {
     currentWorkId: null,
@@ -83,7 +98,7 @@ const App = {
   async cloudSave(pin) {
     const payload = await DB.exportAll();
     const compressed = await gzipToBase64(payload);
-    const res = await fetch(`/api/sync?pin=${encodeURIComponent(pin)}`, {
+    const res = await fetchWithRetry(`/api/sync?pin=${encodeURIComponent(pin)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: compressed }),
@@ -95,7 +110,7 @@ const App = {
   },
 
   async cloudLoad(pin) {
-    const res = await fetch(`/api/sync?pin=${encodeURIComponent(pin)}`);
+    const res = await fetchWithRetry(`/api/sync?pin=${encodeURIComponent(pin)}`);
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error((data && data.error) || `불러오기 실패 (${res.status})`);
     const payload = await base64ToGunzipJson(data.data);
@@ -255,11 +270,14 @@ const App = {
       </div>
       <div class="settings-section">
         <h4>☁ 클라우드 동기화 (기기 간 백업)</h4>
-        <p class="muted">6자리 비밀번호를 정하고, 다른 기기에서 같은 번호로 불러오면 같은 데이터를 볼 수 있어요. 실시간 동기화가 아니라 수동 저장/불러오기이며, 불러오기는 이 기기의 데이터를 완전히 교체합니다.<br><strong>주의:</strong> 계정 없이 6자리 숫자만으로 구분하는 방식이라 강력한 보안은 아니에요 — 민감한 내용 보호용으로는 쓰지 마세요.</p>
-        <input type="text" class="input" id="cloudPinInput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6자리 숫자 (예: 482913)" value="${Utils.escapeHtml(savedPin)}">
+        <p class="muted">6자리 비밀번호를 정하고, 다른 기기에서 같은 번호로 불러오면 같은 데이터를 볼 수 있어요. 실시간 동기화가 아니라 수동 저장/불러오기이며, 불러오기는 이 기기의 데이터를 완전히 교체합니다.<br><strong>주의:</strong> 계정 없이 6자리 숫자만으로 구분하는 방식이라 강력한 보안은 아니에요 — 민감한 내용 보호용으로는 쓰지 마세요. PIN을 잊으면 클라우드에 저장한 데이터를 다시 불러올 방법이 없으니 꼭 기억하거나 따로 메모해두세요.</p>
+        <div class="cloud-pin-field">
+          <span class="cloud-pin-field__icon" aria-hidden="true">🔒</span>
+          <input type="text" class="input" id="cloudPinInput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6자리 숫자 (예: 482913)" value="${Utils.escapeHtml(savedPin)}">
+        </div>
         <div class="data-menu" style="margin-top:8px;">
           <button class="btn btn--block" id="cloudSaveBtn">☁️ 클라우드에 저장</button>
-          <button class="btn btn--block btn--ghost" id="cloudLoadBtn">⬇️ 클라우드에서 불러오기</button>
+          <button class="btn btn--block btn--ghost btn--danger-text" id="cloudLoadBtn">⬇️ 클라우드에서 불러오기</button>
         </div>
         <p class="muted" id="cloudSyncStatus" style="margin-top:6px;">${lastSyncAt ? `마지막 동기화: ${Utils.formatDate(new Date(lastSyncAt).toISOString())}` : '아직 동기화한 적이 없습니다'}</p>
       </div>

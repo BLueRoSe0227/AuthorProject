@@ -1,4 +1,4 @@
-const GROUP_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+const GROUP_COLORS = Utils.PALETTE_COLORS;
 
 Views.characters = async function (workId) {
   const content = document.getElementById('content');
@@ -413,13 +413,17 @@ async function renderCharacterSplitView(workId, qId, initialGroupFilter) {
 
   // ---- Relationship map (right pane) ----
   const relMapWrap = document.getElementById('relMapWrap');
-  const tags = await Models.getRelationshipTags(workId);
-  const legend = document.getElementById('relLegend');
-  tags.forEach((t) => {
-    const span = document.createElement('span');
-    span.innerHTML = `<i style="background:${t.color}"></i>${Utils.escapeHtml(t.label)}`;
-    legend.appendChild(span);
-  });
+
+  function renderLegend(tagsList) {
+    const legendEl = relMapWrap.querySelector('#relLegend');
+    if (!legendEl) return;
+    legendEl.innerHTML = '';
+    tagsList.forEach((t) => {
+      const span = document.createElement('span');
+      span.innerHTML = `<i style="background:${t.color}"></i>${Utils.escapeHtml(t.label)}`;
+      legendEl.appendChild(span);
+    });
+  }
 
   let mapHandle = null;
   // Covers navigating away from 캐릭터 entirely — refreshMap() below already
@@ -427,7 +431,10 @@ async function renderCharacterSplitView(workId, qId, initialGroupFilter) {
   Router.onCleanup(() => { if (mapHandle) mapHandle.destroy(); });
 
   async function refreshMap() {
-    const { characters, edges, groupColorByChar } = await Models.getRelationshipGraphData(workId);
+    const [{ characters, edges, groupColorByChar }, tags] = await Promise.all([
+      Models.getRelationshipGraphData(workId),
+      Models.getRelationshipTags(workId), // re-fetch each time so newly added tags reach the legend (DEV-22)
+    ]);
     if (mapHandle) { mapHandle.destroy(); mapHandle = null; }
     if (!characters.length) {
       relMapWrap.innerHTML = `<div class="empty-state"><div class="empty-state__icon">🧑‍🤝‍🧑</div><h3>캐릭터를 먼저 추가해보세요</h3><p class="muted">왼쪽에서 캐릭터를 추가하면 여기서 관계도를 그릴 수 있어요.</p></div>`;
@@ -440,13 +447,8 @@ async function renderCharacterSplitView(workId, qId, initialGroupFilter) {
         <div class="rel-legend" id="relLegend"></div>
         <p class="rel-hint">드래그로 인물 위치 이동 · 더블클릭으로 캐릭터 선택</p>
       `;
-      const legendEl = relMapWrap.querySelector('#relLegend');
-      tags.forEach((t) => {
-        const span = document.createElement('span');
-        span.innerHTML = `<i style="background:${t.color}"></i>${Utils.escapeHtml(t.label)}`;
-        legendEl.appendChild(span);
-      });
     }
+    renderLegend(tags);
     const canvas = relMapWrap.querySelector('#relMapCanvas');
     mapHandle = Graph.mountRelationshipMap(canvas, characters, edges, {
       onNodeClick: (charId) => selectCharacter(charId),

@@ -2,7 +2,7 @@
 // draggable color frames, optionally linked with connector lines — a lightweight
 // mind-map surface for loose ideas. Implemented with absolutely-positioned DOM
 // nodes (not <canvas>) since cards need real text editing, which canvas can't do.
-const MEMO_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+const MEMO_COLORS = Utils.PALETTE_COLORS;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 // Re-inserted at the top of the SVG on every redraw (redrawConnections rebuilds the
