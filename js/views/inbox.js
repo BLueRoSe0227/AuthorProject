@@ -96,8 +96,8 @@ async function renderInboxListView(workId, qId) {
         <div class="memo-editable-card__footer">
           <span class="muted">${Utils.formatDate(m.updatedAt)}</span>
           <div class="memo-editable-card__actions">
-            <button class="icon-btn archive-btn" title="${m.archived ? '보관 해제' : '보관'}">${m.archived ? '↩' : '🗄'}</button>
-            <button class="icon-btn delete-btn" title="삭제">🗑</button>
+            <button class="icon-btn archive-btn" title="${m.archived ? '보관 해제' : '보관'}" aria-label="${m.archived ? '보관 해제' : '보관'}">${m.archived ? '↩' : '🗄'}</button>
+            <button class="icon-btn delete-btn" title="삭제" aria-label="메모 삭제">🗑</button>
           </div>
         </div>
       `;

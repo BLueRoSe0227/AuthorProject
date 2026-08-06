@@ -113,6 +113,45 @@ describe('Proofreader.markIssues / unwrapMark / applyMark', () => {
     expect(topLevelDivs[0].contains(mark)).toBe(true);
   });
 
+  it('skips (does not mark) an issue whose match genuinely straddles two paragraphs', () => {
+    // Distinct from the "starts a new paragraph" regression above: here the match
+    // isn't ambiguous at a single boundary offset — it's a real 4-char match ("몇일
+    // 후") whose first char sits in paragraph 1 and the rest sit in paragraph 2,
+    // only possible because contentEl.textContent joins paragraph <div>s with no
+    // separator. Wrapping this would force extractContents to restructure the
+    // paragraph divs (same corruption class as the other regression), so it must
+    // be silently skipped rather than marked.
+    document.body.innerHTML = '<div id="editor" contenteditable="true">이건 몇<div>일 후의 일이다.</div></div>';
+    const el = document.getElementById('editor');
+    const issues = Proofreader.check(el.textContent);
+    const hit = issues.find((i) => i.ruleId === 'myeochil');
+    expect(hit).toBeTruthy(); // sanity: check() still flags it (it operates on flat text)
+    expect(() => Proofreader.markIssues(el, issues)).not.toThrow();
+    expect(el.textContent).toBe('이건 몇일 후의 일이다.');
+    // No paragraph got split/merged, and the straddling issue was never wrapped.
+    const topLevelDivs = [...el.children].filter((c) => c.tagName === 'DIV');
+    expect(topLevelDivs.length).toBe(1);
+    expect(topLevelDivs[0].textContent).toBe('일 후의 일이다.');
+    expect(el.querySelector('.proofread-mark')).toBeNull();
+  });
+
+  it('skips (does not mark) an issue whose match straddles two list items', () => {
+    // Same class of bug as the paragraph-straddling case above, but for <li>:
+    // textContent has no separator between list items either, so "몇" ending one
+    // <li> and "일" starting the next can flag "몇일" as if it were contiguous.
+    document.body.innerHTML = '<ul id="editor" contenteditable="true"><li>이건 몇</li><li>일 후의 일이다.</li></ul>';
+    const el = document.getElementById('editor');
+    const issues = Proofreader.check(el.textContent);
+    const hit = issues.find((i) => i.ruleId === 'myeochil');
+    expect(hit).toBeTruthy();
+    expect(() => Proofreader.markIssues(el, issues)).not.toThrow();
+    expect(el.textContent).toBe('이건 몇일 후의 일이다.');
+    const items = [...el.querySelectorAll('li')];
+    expect(items.length).toBe(2);
+    expect(items[1].textContent).toBe('일 후의 일이다.');
+    expect(el.querySelector('.proofread-mark')).toBeNull();
+  });
+
   it('unwrapMark removes the wrapper but keeps the original text and bold formatting', () => {
     document.body.innerHTML = '<div id="editor" contenteditable="true">그날 <b>됬다</b>.</div>';
     const el = document.getElementById('editor');

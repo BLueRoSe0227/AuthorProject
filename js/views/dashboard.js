@@ -107,6 +107,13 @@ Views.editWorkFlow = async function (work) {
   });
 };
 
+// "오늘 집중" stat tile — Timer.getTodayFocusSeconds() is a raw second count.
+function formatFocusDuration(totalSeconds) {
+  const min = Math.floor(totalSeconds / 60);
+  if (min < 60) return `${min}분`;
+  return `${Math.floor(min / 60)}시간 ${min % 60}분`;
+}
+
 Views.dashboard = async function (workId) {
   const content = document.getElementById('content');
   const bundle = await Models.getWorkBundle(workId);
@@ -143,6 +150,7 @@ Views.dashboard = async function (workId) {
         <div class="stat-tile"><span class="stat-tile__num text-accent">${stats.memoCount}</span><span class="stat-tile__label">메모</span></div>
         <div class="stat-tile"><span class="stat-tile__num text-pal-2">🔥${goalSummary.streak}</span><span class="stat-tile__label">연속 집필일</span></div>
         <div class="stat-tile"><span class="stat-tile__num text-accent">${todayPct === null ? '–' : todayPct + '%'}</span><span class="stat-tile__label">오늘 목표</span></div>
+        <div class="stat-tile"><span class="stat-tile__num text-pal-3">⏱${formatFocusDuration(Timer.getTodayFocusSeconds())}</span><span class="stat-tile__label">오늘 집중</span></div>
       </div>
 
       <div class="dashboard-grid">

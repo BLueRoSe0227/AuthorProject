@@ -156,8 +156,8 @@ Views.manuscript = async function (workId, sceneId) {
           <span class="chapter-title" contenteditable="false">${Utils.escapeHtml(ch.title)}</span>
           <span class="muted chapter-count">${scenes.length}</span>
           ${isWebnovel ? `<button class="chapter-serial-btn${ch.serializedAt ? ' chapter-serial-btn--live' : ''}" title="클릭해서 연재 여부 전환">${ch.serializedAt ? `📡 ${ch.serializedAt}` : '미연재'}</button>` : ''}
-          <button class="icon-btn add-scene-btn" title="장면 추가">+</button>
-          <button class="icon-btn more-btn" title="더보기">⋯</button>
+          <button class="icon-btn add-scene-btn" title="장면 추가" aria-label="${Utils.escapeHtml(ch.title)}에 장면 추가">+</button>
+          <button class="icon-btn more-btn" title="더보기" aria-label="${Utils.escapeHtml(ch.title)} 챕터 메뉴">⋯</button>
         </div>
         <div class="scene-list" style="display:${isOpen ? 'block' : 'none'}"></div>
       `;
@@ -225,7 +225,7 @@ Views.manuscript = async function (workId, sceneId) {
           <span class="status-dot status-dot--${sc.status}"></span>
           <span class="scene-title">${Utils.escapeHtml(sc.title)}</span>
           <span class="muted scene-words">${formatCharCount(sc.content)}</span>
-          <button class="icon-btn more-btn" title="더보기">⋯</button>
+          <button class="icon-btn more-btn" title="더보기" aria-label="${Utils.escapeHtml(sc.title)} 장면 메뉴">⋯</button>
         `;
         sceneEl.addEventListener('click', (e) => {
           if (e.target.closest('button')) return;
@@ -521,7 +521,7 @@ Views.manuscript = async function (workId, sceneId) {
             <option value="revising" ${scene.status === 'revising' ? 'selected' : ''}>퇴고중</option>
             <option value="done" ${scene.status === 'done' ? 'selected' : ''}>완료</option>
           </select>
-          <span class="save-indicator" aria-live="polite">저장됨</span>
+          <span class="save-indicator save-indicator--saved" aria-live="polite"><span class="save-indicator__dot"></span>저장됨</span>
           <button class="btn btn--ghost btn--sm proofread-btn">✓ 맞춤법 검사</button>
           <button class="btn btn--ghost btn--sm history-btn">🕐 버전 기록</button>
         </div>
@@ -546,15 +546,23 @@ Views.manuscript = async function (workId, sceneId) {
 
     let versionTimer = null;
 
+    // 'dirty' (typing, unsaved) / 'saving' / 'saved' — each gets its own dot style
+    // (pulsing accent / spinning ring / solid success) so the state reads at a
+    // glance instead of only through the text.
+    function setSaveIndicator(state, text) {
+      indicator.className = `save-indicator save-indicator--${state}`;
+      indicator.innerHTML = `<span class="save-indicator__dot"></span>${Utils.escapeHtml(text)}`;
+    }
+
     const debouncedSave = Utils.debounce(async (html) => {
-      indicator.textContent = '저장 중...';
+      setSaveIndicator('saving', '저장 중...');
       // Proofread review marks (see openProofreadReview) are transient UI state —
       // strip them from what gets persisted regardless of what triggered this save,
       // rather than relying on the review flow to always clean up first.
       const cleanHtml = Proofreader.stripMarksFromHtml(html);
       await Models.updateScene(scene.id, { content: cleanHtml });
       wordLabel.textContent = formatCharCount(cleanHtml);
-      indicator.textContent = '저장됨 · 방금';
+      setSaveIndicator('saved', '저장됨 · 방금');
       const treeTitleEl = document.querySelector(`.scene-row[data-scene-id="${scene.id}"] .scene-words`);
       if (treeTitleEl) treeTitleEl.textContent = formatCharCount(cleanHtml);
     }, Prefs.get().autosaveDelay);
@@ -578,7 +586,7 @@ Views.manuscript = async function (workId, sceneId) {
       content: scene.content,
       placeholder: '이 장면의 이야기를 적어보세요... [[캐릭터명]]처럼 쓰면 대시보드에서 자동으로 연결됩니다.',
       onChange: (html) => {
-        indicator.textContent = '입력 중...';
+        setSaveIndicator('dirty', '입력 중...');
         debouncedSave(html);
         clearTimeout(versionTimer);
         versionTimer = setTimeout(async () => {
@@ -794,8 +802,8 @@ Views.manuscript = async function (workId, sceneId) {
         ${PROOFREAD_FILTERS.map((f) => `<button class="chip${f.key === 'all' ? ' chip--active' : ''}" data-filter="${f.key}">${f.label}</button>`).join('')}
       </div>
       <div class="proofread-bar__nav" hidden>
-        <button class="icon-btn proofread-bar__prev" title="이전 항목">◀</button>
-        <button class="icon-btn proofread-bar__next" title="다음 항목">다음 ▶</button>
+        <button class="icon-btn proofread-bar__prev" title="이전 항목" aria-label="이전 항목">◀</button>
+        <button class="icon-btn proofread-bar__next" title="다음 항목" aria-label="다음 항목">다음 ▶</button>
       </div>
       <button class="btn btn--ghost btn--sm proofread-bar__done">검토 종료</button>
     `;

@@ -94,6 +94,20 @@ const Theme = {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
   },
 
+  // Picks whichever of near-black/near-white has higher contrast against `hex` —
+  // for text painted directly on top of a solid `hex` fill (e.g. .btn--pal-* button
+  // labels), as opposed to adjustForContrast below, which preserves `hex`'s own hue
+  // for using the palette color AS text against a neutral background. Pastel
+  // palettes (see THEME_PALETTES.pastel) are light enough that hardcoded white
+  // button text becomes unreadable against them — this is what fixes that.
+  onColorFor(hex) {
+    // Compare the exact two colors being chosen between — comparing against pure
+    // #000000 here while returning the dimmer #1a1a1a below would let a borderline
+    // `hex` get the wrong answer, since #1a1a1a's actual contrast is slightly lower
+    // than #000000's.
+    return Theme.contrastRatio('#ffffff', hex) >= Theme.contrastRatio('#1a1a1a', hex) ? '#ffffff' : '#1a1a1a';
+  },
+
   // Derives a text-safe variant of `hex` for use against `bgHex`, nudging HSL
   // lightness away from the background's own lightness (preserving hue/saturation,
   // so it still reads as "that palette color") until it clears minRatio, or gives
@@ -154,6 +168,7 @@ const Theme = {
     palette.colors.forEach((c, i) => {
       root.style.setProperty(`--palette-${i + 1}`, c);
       root.style.setProperty(`--palette-${i + 1}-text`, Theme.adjustForContrast(c, bg));
+      root.style.setProperty(`--palette-${i + 1}-oncolor`, Theme.onColorFor(c));
     });
   },
 

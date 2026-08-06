@@ -3,6 +3,35 @@
 // (dashboard/manuscript/characters/inbox) that can't be sequenced through easily.
 const Onboarding = {
   STORAGE_KEY: 'sw-onboarded',
+  // Local-only usage funnel — no external analytics service, just two counters
+  // kept in localStorage: how many times each step was actually reached, and how
+  // each run ended (completed/skipped/closed early). Comparing stepsReached[0..3]
+  // shows where people stop going further; see getFunnelStats().
+  FUNNEL_KEY: 'sw-onboarding-funnel',
+
+  _readFunnel() {
+    try {
+      const data = JSON.parse(localStorage.getItem(Onboarding.FUNNEL_KEY));
+      return data && typeof data === 'object' ? data : { stepsReached: {}, endReasons: {} };
+    } catch (e) {
+      return { stepsReached: {}, endReasons: {} };
+    }
+  },
+  _recordStep(step) {
+    const data = Onboarding._readFunnel();
+    data.stepsReached[step] = (data.stepsReached[step] || 0) + 1;
+    localStorage.setItem(Onboarding.FUNNEL_KEY, JSON.stringify(data));
+  },
+  _recordEnd(reason) {
+    const data = Onboarding._readFunnel();
+    data.endReasons[reason] = (data.endReasons[reason] || 0) + 1;
+    localStorage.setItem(Onboarding.FUNNEL_KEY, JSON.stringify(data));
+  },
+  // { stepsReached: { '0': n, '1': n, ... }, endReasons: { completed: n, skipped: n, closed: n } }
+  // — inspect via console: Onboarding.getFunnelStats()
+  getFunnelStats() {
+    return Onboarding._readFunnel();
+  },
 
   STEPS: [
     {
@@ -35,12 +64,16 @@ const Onboarding = {
   show() {
     let step = 0;
 
-    function finish() {
+    // reason is 'completed' | 'skipped' | undefined (defaults to 'closed' — the
+    // X button/backdrop-click path calls this via onClose below with no argument).
+    function finish(reason = 'closed') {
+      Onboarding._recordEnd(reason);
       localStorage.setItem(Onboarding.STORAGE_KEY, 'true');
       UI.closeModal();
     }
 
     function renderStep() {
+      Onboarding._recordStep(step);
       const s = Onboarding.STEPS[step];
       const wrap = document.createElement('div');
       wrap.className = 'onboarding';
@@ -56,10 +89,10 @@ const Onboarding = {
       const actions = [];
       if (step > 0) actions.push({ label: '이전', onClick: () => { step--; renderStep(); } });
       if (step < Onboarding.STEPS.length - 1) {
-        actions.push({ label: '건너뛰기', onClick: finish });
+        actions.push({ label: '건너뛰기', onClick: () => finish('skipped') });
         actions.push({ label: '다음', primary: true, onClick: () => { step++; renderStep(); } });
       } else {
-        actions.push({ label: '시작하기', primary: true, onClick: finish });
+        actions.push({ label: '시작하기', primary: true, onClick: () => finish('completed') });
       }
 
       UI.openModal({

@@ -24,32 +24,32 @@ const RichEditor = {
           ${[12, 14, 16, 18, 20, 24, 28].map((px) => `<option value="${px}px">${px}px</option>`).join('')}
         </select>
         <span class="rich-toolbar__sep"></span>
-        <button type="button" class="rich-btn" data-cmd="bold" title="굵게 (Ctrl+B)"><b>B</b></button>
-        <button type="button" class="rich-btn" data-cmd="italic" title="기울임 (Ctrl+I)"><i>I</i></button>
-        <button type="button" class="rich-btn" data-cmd="underline" title="밑줄 (Ctrl+U)"><u>U</u></button>
-        <button type="button" class="rich-btn" data-cmd="strikeThrough" title="취소선"><s>S</s></button>
+        <button type="button" class="rich-btn" data-cmd="bold" title="굵게 (Ctrl+B)" aria-label="굵게"><b>B</b></button>
+        <button type="button" class="rich-btn" data-cmd="italic" title="기울임 (Ctrl+I)" aria-label="기울임"><i>I</i></button>
+        <button type="button" class="rich-btn" data-cmd="underline" title="밑줄 (Ctrl+U)" aria-label="밑줄"><u>U</u></button>
+        <button type="button" class="rich-btn" data-cmd="strikeThrough" title="취소선" aria-label="취소선"><s>S</s></button>
         <span class="rich-toolbar__sep"></span>
-        <button type="button" class="rich-btn" data-cmd="insertUnorderedList" title="글머리 기호 목록">•≡</button>
-        <button type="button" class="rich-btn" data-cmd="insertOrderedList" title="번호 목록">1≡</button>
+        <button type="button" class="rich-btn" data-cmd="insertUnorderedList" title="글머리 기호 목록" aria-label="글머리 기호 목록">•≡</button>
+        <button type="button" class="rich-btn" data-cmd="insertOrderedList" title="번호 목록" aria-label="번호 목록">1≡</button>
         <span class="rich-toolbar__sep"></span>
-        <button type="button" class="rich-btn" data-cmd="justifyLeft" title="왼쪽 정렬">◀≡</button>
-        <button type="button" class="rich-btn" data-cmd="justifyCenter" title="가운데 정렬">≡</button>
-        <button type="button" class="rich-btn" data-cmd="justifyRight" title="오른쪽 정렬">▶≡</button>
+        <button type="button" class="rich-btn" data-cmd="justifyLeft" title="왼쪽 정렬" aria-label="왼쪽 정렬">◀≡</button>
+        <button type="button" class="rich-btn" data-cmd="justifyCenter" title="가운데 정렬" aria-label="가운데 정렬">≡</button>
+        <button type="button" class="rich-btn" data-cmd="justifyRight" title="오른쪽 정렬" aria-label="오른쪽 정렬">▶≡</button>
         <span class="rich-toolbar__sep"></span>
-        <button type="button" class="rich-btn" data-action="link" title="링크 삽입">🔗</button>
-        <button type="button" class="rich-btn" data-cmd="insertHorizontalRule" title="구분선">―</button>
-        <button type="button" class="rich-btn" data-action="image" title="이미지 삽입">🖼</button>
-        <button type="button" class="rich-btn" data-action="table" title="표 삽입">▦</button>
+        <button type="button" class="rich-btn" data-action="link" title="링크 삽입" aria-label="링크 삽입">🔗</button>
+        <button type="button" class="rich-btn" data-cmd="insertHorizontalRule" title="구분선" aria-label="구분선 삽입">―</button>
+        <button type="button" class="rich-btn" data-action="image" title="이미지 삽입" aria-label="이미지 삽입">🖼</button>
+        <button type="button" class="rich-btn" data-action="table" title="표 삽입" aria-label="표 삽입">▦</button>
         <span class="rich-toolbar__sep"></span>
-        <button type="button" class="rich-btn" data-action="dict" title="선택한 단어를 표준국어대사전에서 찾기">🔎</button>
+        <button type="button" class="rich-btn" data-action="dict" title="선택한 단어를 표준국어대사전에서 찾기" aria-label="선택한 단어를 표준국어대사전에서 찾기">🔎</button>
         <span class="rich-toolbar__sep rich-toolbar__sep--table-only"></span>
-        <button type="button" class="rich-btn rich-btn--sm" data-action="addRow" title="행 추가">+행</button>
-        <button type="button" class="rich-btn rich-btn--sm" data-action="addCol" title="열 추가">+열</button>
-        <button type="button" class="rich-btn rich-btn--sm" data-action="removeRow" title="행 삭제">-행</button>
-        <button type="button" class="rich-btn rich-btn--sm" data-action="removeCol" title="열 삭제">-열</button>
+        <button type="button" class="rich-btn rich-btn--sm" data-action="addRow" title="행 추가" aria-label="행 추가">+행</button>
+        <button type="button" class="rich-btn rich-btn--sm" data-action="addCol" title="열 추가" aria-label="열 추가">+열</button>
+        <button type="button" class="rich-btn rich-btn--sm" data-action="removeRow" title="행 삭제" aria-label="행 삭제">-행</button>
+        <button type="button" class="rich-btn rich-btn--sm" data-action="removeCol" title="열 삭제" aria-label="열 삭제">-열</button>
         <span class="rich-toolbar__sep"></span>
-        <button type="button" class="rich-btn" data-cmd="undo" title="실행 취소">↶</button>
-        <button type="button" class="rich-btn" data-cmd="redo" title="다시 실행">↷</button>
+        <button type="button" class="rich-btn" data-cmd="undo" title="실행 취소" aria-label="실행 취소">↶</button>
+        <button type="button" class="rich-btn" data-cmd="redo" title="다시 실행" aria-label="다시 실행">↷</button>
         <input type="file" class="rich-image-input" accept="image/*" hidden>
       </div>
       <div class="rich-content" contenteditable="true" data-placeholder="${Utils.escapeHtml(placeholder)}"></div>

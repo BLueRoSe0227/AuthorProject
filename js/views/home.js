@@ -1,6 +1,13 @@
 const Views = {};
 
-const WORK_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+// Falls back to a fixed rainbow only if Theme isn't available for some reason —
+// the normal path always draws from the user's active theme palette (js/theme.js)
+// so new work cards' colors match whatever theme they're currently using instead
+// of an unrelated hardcoded set.
+const WORK_COLORS_FALLBACK = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
+function currentWorkColors() {
+  return (typeof Theme !== 'undefined' && Theme.currentPalette().colors) || WORK_COLORS_FALLBACK;
+}
 const LENGTH_OPTIONS = [
   { value: 'long', desc: '여러 챕터로 이어지는 연재형 작품' },
   { value: 'medium', desc: '몇 개 챕터로 완결되는 중간 길이 작품' },
@@ -159,14 +166,14 @@ Views.createWorkFlow = async function () {
     </div>
     <div class="form-field">
       <label>색상</label>
-      <div class="color-swatches" id="colorSwatches">${Views.renderColorSwatches(WORK_COLORS, WORK_COLORS[0])}</div>
+      <div class="color-swatches" id="colorSwatches">${Views.renderColorSwatches(currentWorkColors(), currentWorkColors()[0])}</div>
     </div>
     <div class="form-field">
       <label>키워드 (선택)</label>
       ${Views.renderHashtagInput('newWorkTags')}
     </div>
   `;
-  let selectedColor = WORK_COLORS[0];
+  let selectedColor = currentWorkColors()[0];
   Views.bindColorSwatches(wrap.querySelector('#colorSwatches'), (c) => { selectedColor = c; });
   const tagsInput = Views.bindHashtagInput(wrap.querySelector('#newWorkTags'), []);
 
@@ -218,10 +225,10 @@ Views.home = async function () {
           <p class="muted">원고, 캐릭터, 설정, 메모를 한 곳에서 관리하세요.</p>
         </div>
         <div class="home-header-actions">
-          <button class="btn btn--ghost btn--sm" id="homeHelpBtn" title="둘러보기 다시 보기">❓</button>
-          <button class="btn btn--ghost btn--sm" id="homeSearchBtn" title="통합 검색">🔍</button>
-          <button class="btn btn--ghost btn--sm" id="homeTimerBtn" title="타이머">⏱</button>
-          <button class="btn btn--ghost btn--sm" id="homeSettingsBtn" title="설정">⚙</button>
+          <button class="btn btn--ghost btn--sm" id="homeHelpBtn" title="둘러보기 다시 보기" aria-label="둘러보기 다시 보기">❓</button>
+          <button class="btn btn--ghost btn--sm" id="homeSearchBtn" title="통합 검색" aria-label="통합 검색">🔍</button>
+          <button class="btn btn--ghost btn--sm" id="homeTimerBtn" title="타이머" aria-label="타이머">⏱</button>
+          <button class="btn btn--ghost btn--sm" id="homeSettingsBtn" title="설정" aria-label="설정">⚙</button>
           <button class="btn btn--pal-work" id="newWorkBtn">+ 새 작품</button>
         </div>
       </header>
@@ -371,7 +378,7 @@ Views.home = async function () {
         item.innerHTML = `
           <a href="${a.dataUrl}" download="${Utils.escapeHtml(a.name)}">${Utils.escapeHtml(a.name)}</a>
           <span class="muted">${Math.max(1, Math.round(a.size / 1024))}KB</span>
-          <button type="button" class="icon-btn remove-attach-btn" title="삭제">✕</button>
+          <button type="button" class="icon-btn remove-attach-btn" title="삭제" aria-label="${Utils.escapeHtml(a.name)} 첨부파일 삭제">✕</button>
         `;
         item.querySelector('.remove-attach-btn').addEventListener('click', () => {
           attachments.splice(idx, 1);

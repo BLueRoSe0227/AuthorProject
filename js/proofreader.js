@@ -67,6 +67,22 @@ const Proofreader = {
       const start = offsetToNodeOffset(contentEl, issue.index, true);
       const end = offsetToNodeOffset(contentEl, issue.index + issue.length, false);
       if (!start || !end) return;
+      // contentEl.textContent has no separator at line-boundary elements (paragraph
+      // <div>s, but also <li> and <td>/<th> — textContent concatenates every
+      // descendant text node with zero separators regardless of nesting), so a
+      // rule/AI match whose characters straddle two lines (e.g. the last char of
+      // one list item + the first char of the next happen to form a flagged
+      // substring) looks contiguous to check()/checkOnline() even though it isn't.
+      // The boundary-tie fix in offsetToNodeOffset only resolves the ambiguous case
+      // where a match starts exactly AT a boundary — it can't stop one that
+      // genuinely spans two lines. Wrapping such a range would force
+      // surroundContents' extract+wrap fallback to restructure the containing
+      // elements themselves (splitting/merging paragraph divs, list items, or —
+      // worse — table cells), which is the reported line-break bug: the tail of one
+      // line gets knocked onto the start of the next. Since a real cross-line match
+      // is never something we want to auto-fix inline anyway, just skip marking it
+      // instead of risking that corruption.
+      if (lineContainer(contentEl, start.node) !== lineContainer(contentEl, end.node)) return;
       const range = document.createRange();
       range.setStart(start.node, start.offset);
       range.setEnd(end.node, end.offset);
@@ -197,6 +213,26 @@ const Proofreader = {
 // the caller pick a side deliberately: true for a range's start (snap forward,
 // never trailing off the previous paragraph), false for its end (snap backward,
 // never leading into the next one) — see markIssues.
+// Line-level containers: elements whose content forms its own visual "line"
+// even when it isn't a direct child of contentEl (list items, table cells) —
+// entering/leaving one of these is exactly as much of a text-flow break as a
+// paragraph <div> boundary is, for the purposes of markIssues' cross-line guard.
+const LINE_CONTAINER_TAGS = new Set(['LI', 'TD', 'TH']);
+
+// Walks up from `node` to its nearest "line" boundary: whichever comes first —
+// an LI/TD/TH ancestor, or the child of contentEl that contains it (a bare
+// paragraph <div>, or contentEl's own direct text). Two nodes with different
+// line containers are on different lines, even though contentEl.textContent's
+// flattened offset space makes them look adjacent (see markIssues).
+function lineContainer(contentEl, node) {
+  let cur = node.nodeType === Node.TEXT_NODE ? node.parentNode : node;
+  while (cur && cur !== contentEl) {
+    if (LINE_CONTAINER_TAGS.has(cur.tagName) || cur.parentNode === contentEl) return cur;
+    cur = cur.parentNode;
+  }
+  return cur;
+}
+
 function offsetToNodeOffset(contentEl, charOffset, preferNextNode) {
   const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
   let pos = 0;

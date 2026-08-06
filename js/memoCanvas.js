@@ -251,7 +251,7 @@ const MemoCanvas = {
       el.innerHTML = `
         <div class="memo-group-frame__header">
           <input type="text" class="memo-group-frame__name" value="${Utils.escapeHtml(group.name)}">
-          <button class="icon-btn memo-group-frame__delete" title="그룹 삭제">✕</button>
+          <button class="icon-btn memo-group-frame__delete" title="그룹 삭제" aria-label="그룹 삭제">✕</button>
         </div>
         <div class="memo-group-frame__colors">
           <span class="memo-group-frame__colors-label">테두리</span>
@@ -365,11 +365,11 @@ const MemoCanvas = {
       el.innerHTML = `
         <div class="memo-canvas-card__header">
           <div class="memo-canvas-card__colors">
-            ${MEMO_COLORS.map((c) => `<button class="memo-color-dot" data-color="${c}" style="background:${c}" title="색상"></button>`).join('')}
+            ${MEMO_COLORS.map((c) => `<button class="memo-color-dot" data-color="${c}" style="background:${c}" title="색상 ${c}" aria-label="색상 ${c}"></button>`).join('')}
           </div>
-          <input type="range" class="memo-canvas-card__opacity" min="0" max="100" value="${Math.round((memo.opacity || 0) * 100)}" title="채우기 정도">
-          <button class="icon-btn memo-canvas-card__link" title="다른 카드와 연결">🔗</button>
-          <button class="icon-btn memo-canvas-card__delete" title="삭제">✕</button>
+          <input type="range" class="memo-canvas-card__opacity" min="0" max="100" value="${Math.round((memo.opacity || 0) * 100)}" title="채우기 정도" aria-label="채우기 정도">
+          <button class="icon-btn memo-canvas-card__link" title="다른 카드와 연결" aria-label="다른 카드와 연결">🔗</button>
+          <button class="icon-btn memo-canvas-card__delete" title="삭제" aria-label="삭제">✕</button>
         </div>
         <textarea class="memo-canvas-card__text" placeholder="아이디어를 적어보세요...">${Utils.escapeHtml(memo.content)}</textarea>
         <div class="memo-canvas-card__resize"></div>

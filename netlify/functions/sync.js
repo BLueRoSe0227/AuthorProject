@@ -30,8 +30,31 @@ exports.handler = async (event) => {
   let store;
   try {
     store = getStore('storyweaver-sync');
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: `클라우드 저장소를 사용할 수 없습니다: ${err.message}` }) };
+  } catch (autoErr) {
+    // Netlify normally injects site/token context into a deployed function
+    // automatically, so plain getStore(name) just works — but that injection can
+    // fail to kick in for a given deploy (e.g. it wasn't a clean build after
+    // @netlify/blobs was added as a dependency). The documented workaround is to
+    // configure the store manually, which needs NETLIFY_SITE_ID and
+    // NETLIFY_BLOBS_TOKEN set as environment variables on the site (Site
+    // configuration > Environment variables): site ID from Site configuration >
+    // General > Site details, token from User settings > Applications > Personal
+    // access tokens (needs at least the "Blobs" scope).
+    const siteID = process.env.NETLIFY_SITE_ID;
+    const token = process.env.NETLIFY_BLOBS_TOKEN;
+    if (!siteID || !token) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          error: `클라우드 저장소를 사용할 수 없습니다: ${autoErr.message} — 이 배포에서는 자동 설정이 안 됐어요. Netlify 사이트의 환경 변수에 NETLIFY_SITE_ID와 NETLIFY_BLOBS_TOKEN을 추가한 뒤 다시 배포해주세요.`,
+        }),
+      };
+    }
+    try {
+      store = getStore({ name: 'storyweaver-sync', siteID, token });
+    } catch (manualErr) {
+      return { statusCode: 500, body: JSON.stringify({ error: `클라우드 저장소를 사용할 수 없습니다: ${manualErr.message}` }) };
+    }
   }
 
   // Stored/transferred as opaque base64 text end-to-end — the function never

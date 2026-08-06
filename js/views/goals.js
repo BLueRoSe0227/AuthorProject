@@ -181,7 +181,7 @@ Views.goals = async function (workId) {
         <div class="chapter-goal-row__title text-pal-2">${Utils.escapeHtml(ch.title)}</div>
         <div class="progress-bar"><div class="progress-bar__fill${pct >= 100 ? ' progress-bar__fill--done' : ' progress-bar__fill--pal-2'}" style="width:${Math.min(100, pct)}%"></div></div>
         <div class="chapter-goal-row__meta">${ch.chars.toLocaleString()}${ch.targetChars ? ' / ' + ch.targetChars.toLocaleString() : ''}자${ch.dueDate ? ' · ' + Utils.formatDday(ch.dueDate) : ''}</div>
-        <button class="icon-btn edit-chapter-goal">✎</button>
+        <button class="icon-btn edit-chapter-goal" title="목표 수정" aria-label="${Utils.escapeHtml(ch.title)} 목표 수정">✎</button>
       `;
       row.querySelector('.edit-chapter-goal').addEventListener('click', () => openChapterGoalModal(ch));
       list.appendChild(row);
@@ -522,7 +522,7 @@ Views.goals = async function (workId) {
             ${item.note ? `<div class="schedule-card__note muted">${Utils.escapeHtml(Utils.truncate(item.note, 60))}</div>` : ''}
           </div>
           <div class="schedule-card__actions">
-            ${item.kind === 'schedule' ? `<button class="icon-btn toggle-btn" title="완료 표시">${item.completed ? '↩' : '✓'}</button>` : ''}
+            ${item.kind === 'schedule' ? `<button class="icon-btn toggle-btn" title="${item.completed ? '완료 취소' : '완료 표시'}" aria-label="${item.completed ? '완료 취소' : '완료 표시'}">${item.completed ? '↩' : '✓'}</button>` : ''}
           </div>
         `;
         if (item.kind === 'schedule') {

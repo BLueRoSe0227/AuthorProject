@@ -51,6 +51,35 @@ describe('Theme.adjustForContrast', () => {
   });
 });
 
+describe('Theme.onColorFor', () => {
+  it('picks near-black text for light/pastel fills', () => {
+    // .btn--pal-work-style buttons paint this color as TEXT on top of a solid `c`
+    // fill — distinct from adjustForContrast, which nudges `c` itself for use as
+    // text against a neutral page background. A near-white pastel fill needs dark
+    // text, not white-on-white.
+    expect(Theme.onColorFor('#fff2cc')).toBe('#1a1a1a');
+  });
+
+  it('picks white text for dark/saturated fills', () => {
+    expect(Theme.onColorFor('#263238')).toBe('#ffffff');
+  });
+
+  it('every palette color (any style) picks whichever of black/white contrasts better against it', () => {
+    // onColorFor doesn't guarantee it clears WCAG AA (a mid-tone fill can't hit
+    // 4.5:1 against either black or white) — only that it picks the better of the
+    // two, which is what actually fixes near-white pastel fills getting white text.
+    Object.values(THEME_PALETTES).forEach((list) => {
+      list.forEach((palette) => {
+        palette.colors.forEach((c) => {
+          const onColor = Theme.onColorFor(c);
+          const other = onColor === '#ffffff' ? '#1a1a1a' : '#ffffff';
+          expect(Theme.contrastRatio(onColor, c)).toBeGreaterThanOrEqual(Theme.contrastRatio(other, c));
+        });
+      });
+    });
+  });
+});
+
 describe('Theme.apply', () => {
   it('sets a --palette-N-text custom property for every palette slot', () => {
     localStorage.setItem('sw-theme-style', 'pastel');
@@ -61,5 +90,18 @@ describe('Theme.apply', () => {
       const val = document.documentElement.style.getPropertyValue(`--palette-${i}-text`);
       expect(val).toBeTruthy();
     }
+  });
+
+  it('sets a --palette-N-oncolor custom property usable as text on top of the palette fill itself', () => {
+    localStorage.setItem('sw-theme-style', 'pastel');
+    localStorage.setItem('sw-theme-palette', '0');
+    localStorage.setItem('sw-theme-mode', 'light');
+    Theme.apply();
+    const palette = THEME_PALETTES.pastel[0];
+    palette.colors.forEach((c, i) => {
+      const onColor = document.documentElement.style.getPropertyValue(`--palette-${i + 1}-oncolor`);
+      expect(onColor).toBeTruthy();
+      expect(Theme.contrastRatio(onColor, c)).toBeGreaterThanOrEqual(3); // pastel fills are inherently low-max-contrast; still must beat the opposite choice
+    });
   });
 });

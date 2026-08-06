@@ -29,6 +29,8 @@ const FILE_EXPORTS = {
   'js/proofreaderRules.js': ['ProofreaderRules'],
   'js/proofreader.js': ['Proofreader'],
   'js/theme.js': ['Theme', 'THEME_PALETTES', 'THEME_STYLE_LABELS', 'THEME_KEYS'],
+  'js/timer.js': ['Timer', 'TIMER_COLORS', 'TIMER_SCALE_MIN', 'TIMER_SCALE_MAX'],
+  'js/onboarding.js': ['Onboarding'],
 };
 
 export function loadDomScripts(relPaths) {

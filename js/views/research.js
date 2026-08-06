@@ -148,7 +148,7 @@ async function renderResearchListView(workId, qId) {
         item.innerHTML = `
           <a href="${a.dataUrl}" download="${Utils.escapeHtml(a.name)}">${Utils.escapeHtml(a.name)}</a>
           <span class="muted">${Math.max(1, Math.round(a.size / 1024))}KB</span>
-          <button class="icon-btn remove-attach-btn" title="삭제">✕</button>
+          <button class="icon-btn remove-attach-btn" title="삭제" aria-label="${Utils.escapeHtml(a.name)} 첨부파일 삭제">✕</button>
         `;
         item.querySelector('.remove-attach-btn').addEventListener('click', async () => {
           p.attachments.splice(idx, 1);

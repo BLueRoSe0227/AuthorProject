@@ -204,7 +204,7 @@ async function renderTagsTab(container, workId) {
       row.innerHTML = `
         <input type="color" class="tag-color-input" value="${t.color}">
         <input type="text" class="input tag-label-input" value="${Utils.escapeHtml(t.label)}">
-        <button class="icon-btn btn--danger-text" title="삭제">✕</button>
+        <button class="icon-btn btn--danger-text" title="삭제" aria-label="${Utils.escapeHtml(t.label)} 태그 삭제">✕</button>
       `;
       row.querySelector('.tag-color-input').addEventListener('change', async (e) => {
         await Models.updateRelationshipTag(t.id, { color: e.target.value });

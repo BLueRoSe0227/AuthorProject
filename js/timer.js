@@ -1,6 +1,9 @@
 // Sidebar-accessible focus timer (free countdown or Pomodoro work/break cycles).
-// State lives in memory only (resets on reload) and the floating widget is mounted
-// on <body> directly so it survives route changes while a session is running.
+// Live countdown state lives in memory only (resets on reload) and the floating
+// widget is mounted on <body> directly so it survives route changes while a
+// session is running. Today's accumulated focus *seconds* are the one exception —
+// persisted to localStorage (see FOCUS_KEY below) so the dashboard's "오늘 집중"
+// stat survives a reload instead of resetting with everything else.
 const TIMER_COLORS = ['#8b7bff', '#5aa9ff', '#4fd1c5', '#ff9a62', '#f2c94c', '#ff6b9a', '#6bcf7f'];
 const TIMER_SCALE_MIN = 0.8;
 const TIMER_SCALE_MAX = 1.6;
@@ -32,8 +35,26 @@ const Timer = {
     `;
     document.body.appendChild(pop);
     const rect = anchor.getBoundingClientRect();
-    pop.style.bottom = `${window.innerHeight - rect.top + 8}px`;
     pop.style.left = `${Math.min(rect.left, window.innerWidth - 260)}px`;
+
+    // Opens above the anchor (bottom-anchored) when there's room, like a sidebar
+    // button near the bottom of the screen — but a dashboard-header button sits
+    // near the TOP of the viewport, where "above" barely has any space, and a
+    // fixed bottom-anchored box just grows upward off-screen (the reported
+    // clipped-popover bug). Re-run after every renderBody() call below, since
+    // switching the free/뽀모도로 tab changes the popover's height.
+    function positionPopover() {
+      const popH = pop.offsetHeight;
+      const spaceAbove = rect.top - 8;
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      if (spaceAbove >= popH || spaceAbove >= spaceBelow) {
+        pop.style.top = 'auto';
+        pop.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+      } else {
+        pop.style.bottom = 'auto';
+        pop.style.top = `${Math.max(8, rect.bottom + 8)}px`;
+      }
+    }
 
     const colorRow = pop.querySelector('#timerColorRow');
     const currentColor = Timer.getColor();
@@ -42,7 +63,8 @@ const Timer = {
       dot.type = 'button';
       dot.className = 'timer-color-dot' + (c === currentColor ? ' timer-color-dot--selected' : '');
       dot.style.background = c;
-      dot.title = '위젯 색상';
+      dot.title = `위젯 색상 ${c}`;
+      dot.setAttribute('aria-label', `위젯 색상 ${c}`);
       dot.addEventListener('click', () => {
         Timer.setColor(c);
         colorRow.querySelectorAll('.timer-color-dot').forEach((d) => d.classList.remove('timer-color-dot--selected'));
@@ -89,9 +111,11 @@ const Timer = {
         pop.querySelectorAll('.timer-popover__tabs .chip').forEach((c) => c.classList.remove('chip--active'));
         tab.classList.add('chip--active');
         renderBody();
+        positionPopover();
       });
     });
     renderBody();
+    positionPopover();
 
     setTimeout(() => {
       const closeHandler = (e) => {
@@ -114,6 +138,9 @@ const Timer = {
   tick() {
     if (!Timer.state.running) return;
     Timer.state.remaining--;
+    // 'break' phase (Pomodoro rest) doesn't count as focus time — only 'work'
+    // (which is also the only phase 'free' mode ever has).
+    if (Timer.state.phase !== 'break') Timer._addFocusSeconds(1);
     if (Timer.state.remaining <= 0) {
       Utils.beep();
       if (Timer.state.mode === 'pomodoro') {
@@ -131,6 +158,27 @@ const Timer = {
       }
     }
     Timer.renderWidget();
+  },
+
+  // ---- Today's accumulated focus time (persisted so the dashboard stat survives
+  // a reload/tab close, unlike the live countdown state above) ----
+  FOCUS_KEY: 'sw-focus-today',
+  _addFocusSeconds(sec) {
+    const today = Utils.todayStr();
+    let data;
+    try { data = JSON.parse(localStorage.getItem(Timer.FOCUS_KEY)); } catch (e) { data = null; }
+    if (!data || data.date !== today) data = { date: today, seconds: 0 };
+    data.seconds += sec;
+    localStorage.setItem(Timer.FOCUS_KEY, JSON.stringify(data));
+  },
+  // Returns 0 once the stored date rolls past today, rather than showing yesterday's total.
+  getTodayFocusSeconds() {
+    try {
+      const data = JSON.parse(localStorage.getItem(Timer.FOCUS_KEY));
+      return data && data.date === Utils.todayStr() ? data.seconds : 0;
+    } catch (e) {
+      return 0;
+    }
   },
 
   stop() {
@@ -238,8 +286,8 @@ const Timer = {
       <div class="timer-widget__info">
         <div class="timer-widget__phase">${phaseLabel}</div>
         <div class="timer-widget__controls">
-          <button class="icon-btn" id="timerPauseBtn" title="${running ? '일시정지' : '재개'}">${running ? '⏸' : '▶'}</button>
-          <button class="icon-btn" id="timerStopBtn" title="정지">■</button>
+          <button class="icon-btn" id="timerPauseBtn" title="${running ? '일시정지' : '재개'}" aria-label="${running ? '일시정지' : '재개'}">${running ? '⏸' : '▶'}</button>
+          <button class="icon-btn" id="timerStopBtn" title="정지" aria-label="정지">■</button>
         </div>
       </div>
       <div class="timer-widget__resize-handle" title="드래그해서 크기 조절"></div>
